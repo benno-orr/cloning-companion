@@ -387,7 +387,7 @@
             <div class="picker-sub">Drop your SnapGene .dna file here, or click to choose it.</div><div class="file-summary" id="design-map-summary">Drop or choose a .dna map…</div>
           </button>
           <div class="design-settings"><h3>Assembly settings</h3>
-            <label class="design-enzyme">Project name <input id="design-project-name" placeholder="Name this project" style="min-width:0;max-width:65%;padding:8px;border:1px solid var(--line);border-radius:8px"></label>
+            <label class="design-enzyme">Project name <input id="design-project-name" placeholder="Leave blank for date/time" style="min-width:0;max-width:65%;padding:8px;border:1px solid var(--line);border-radius:8px"></label>
             <label class="design-enzyme">Type IIS enzyme <select id="design-enzyme"><option value="BsmBI">BsmBI / Esp3I</option><option value="BsaI">BsaI</option></select></label>
           <div class="design-summary"><strong>Saved as a project in the app.</strong><br>Your map, variants, settings and generated outputs reopen together. Download individual outputs or use Save Project for a portable project file.</div>
           </div>
@@ -688,7 +688,6 @@ async function chooseAnnotatedDesignMap(){
 function acceptDesignMap(map){
   if(designBusy){toast('Wait for the current design to finish before changing the map',true);return;}
   if(state.designMap?.path!==map.path)state.designVariableTexts={};state.designMap=map;
-  if(!state.projectName){state.projectName=map.filename.replace(/\.dna$/i,'');document.getElementById('design-project-name').value=state.projectName;setDocument(state.projectPath);}
   document.getElementById('design-map-summary').textContent=`${map.filename} · backbone: ${map.backboneName} · ${map.fragmentCount} fragments · ${map.junctionCount} junctions`;
   document.getElementById('pick-design-map').classList.add('loaded');renderVariableElements();renderDesignResults();toast(`Read ${map.filename}`);
 }
@@ -711,7 +710,7 @@ async function runAnnotatedGoldenGateDesign(){
 }
 
 async function saveProject(asNew=false){
-  try{const result=await pywebview.api[asNew?'save_project_as':'save_project'](currentProjectState());if(result.ok){state.recent=result.recent||state.recent;renderRecent();setDocument(result.path);toast(`Saved ${result.path.split('/').pop()}`)}else if(!result.cancelled)toast(result.error,true)}catch(e){toast(String(e),true)}
+  try{const result=await pywebview.api[asNew?'save_project_as':'save_project'](currentProjectState());if(result.ok){state.projectName=result.projectName||state.projectName;document.getElementById('design-project-name').value=state.projectName||'';state.recent=result.recent||state.recent;renderRecent();setDocument(result.path);toast(`Saved ${result.path.split('/').pop()}`)}else if(!result.cancelled)toast(result.error,true)}catch(e){toast(String(e),true)}
 }
 window.saveProjectFromMenu=()=>saveProject(false);
 window.loadProjectFromNative=result=>applyProject(result);

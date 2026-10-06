@@ -60,6 +60,7 @@ def main():
                 actual = window.evaluate_js('state.designMap')
                 assert actual == api.annotated_design_map_from_path(str(source)), actual
                 assert window.evaluate_js("document.getElementById('pick-design-map').classList.contains('loaded')")
+                assert window.evaluate_js("document.getElementById('design-project-name').value") == ''
                 window.evaluate_js("showView('setup')")
                 assert window.evaluate_js("document.body.dataset.workspace") == 'verification'
                 assert window.evaluate_js("document.getElementById('design-navigation').classList.contains('hidden')")

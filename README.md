@@ -42,7 +42,7 @@ Outputs:
 
 ```text
 dist/CloningCompanion.app
-dist/CloningCompanion-1.8.0.dmg
+dist/CloningCompanion-1.8.1.dmg
 ```
 
 When `SIGN_IDENTITY` is omitted, the build script uses an ad-hoc signature suitable for local testing. For public distribution, use a Developer ID Application certificate:
@@ -151,6 +151,8 @@ Drop an annotated `.dna` file onto the design-map input or click to choose one, 
 Use **Download outputs** to export individual SnapGene plasmids, synthesis TSV/FASTA, PCR primers, schematics and reports, or ZIP bundles. **Save Project** optionally creates a portable version-2 `.plasmidverify` document with the Golden Gate input map and matching generated outputs embedded, not merely links to the current Mac's library. Opening it restores previews and downloads without regeneration and supports rerunning on another Mac. Saving rejects mismatched inputs and outputs, uses atomic file replacement, and leaves the current project association unchanged if Save As is cancelled. Legacy version-1 project files still open; verification input files remain external references as before. The CLI retains its explicit output-directory behavior. Version 1.6.0's memory-only results must be downloaded before upgrading or regenerated to enter the library.
 
 For each `{variable core}`, paste a list of named core DNA sequences in its variant box: two tab-separated columns, CSV (optional `name` and `dna_sequence` headers), or FASTA. The app adds the selected shared fusions and enzyme adapters to every version. Fixed pieces are output once. `synthesis_order.tsv` and `synthesis_order.fasta` contain one synthesis fragment per version; PCR variants get individual primer pairs in `pcr_primers.tsv`. Choose one option per assembly position in `assembly_recipe.tsv`. The SnapGene assembled map and junction PNGs represent the first option from each list, not all combinations. Save Project preserves the pasted lists. Empty lists use the core from the original map, which must contain unambiguous DNA. These checks do not predict experimental ligation fidelity or substitute for vendor/manufacturability review.
+
+If no project name is entered (including whitespace-only input), version 1.8.1 uses a local date/time stamp such as `2026-10-06 16-23-45`. Importing a map no longer fills the project name with its filename. The generated name is stored with the project and retained on reopening and subsequent runs; explicit names are preserved.
 
 The **Linear map** view displays a to-scale linearized plasmid with alternating upper/lower junction blowups, downloadable as `plasmid_with_junction_blowups.png`. **Fragment ends** shows the separate pre-digestion ends. Click an image to enlarge it or view it at actual size; each has a PNG download button.
 

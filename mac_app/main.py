@@ -39,7 +39,7 @@ from mac_app import local_updates, github_updates, design_library
 
 
 APP_NAME = "CloningCompanion"
-APP_VERSION = "1.8.0"
+APP_VERSION = "1.8.1"
 PROJECT_EXTENSION = "plasmidverify"
 SEQUENCE_TYPES = ("Sequence files (*.fasta;*.fa;*.fna;*.fas;*.dna)", "All files (*.*)")
 INSERT_TYPES = (
@@ -48,6 +48,11 @@ INSERT_TYPES = (
 )
 PROJECT_TYPES = ("CloningCompanion projects (*.plasmidverify)",)
 DESIGN_MAP_TYPES = ("Annotated SnapGene maps (*.dna)", "All files (*.*)")
+
+
+def _project_name(value: Optional[str]) -> str:
+    """Keep explicit names; timestamp unnamed projects in the Mac's local time."""
+    return value if value and value.strip() else datetime.now().astimezone().strftime("%Y-%m-%d %H-%M-%S")
 
 
 def _same_design_inputs(first: Dict[str, Any], second: Dict[str, Any]) -> bool:
@@ -494,7 +499,7 @@ class NativeAPI:
                 info = self.annotated_design_map_from_path(str(source))
                 info.update(path=map_path, embeddedSnapGene=base64.b64encode(data).decode("ascii"))
                 state["goldenGateDesign"] = {"map": info, "enzyme": enzyme, "variableTexts": variable_texts or {}}
-                state["projectName"] = state.get("projectName") or Path(map_path).stem
+                state["projectName"] = _project_name(state.get("projectName"))
                 state["projectId"] = state.get("projectId") or uuid.uuid4().hex
                 def generate(root):
                     result = run_annotated_snapgene_design(source, root, enzyme, variable_texts)
@@ -700,15 +705,17 @@ class NativeAPI:
         return True
 
     def _save_project(self, payload: Dict[str, Any], as_new: bool) -> Dict[str, Any]:
+        name = _project_name(payload.get("projectName"))
         path = None if as_new else self.current_project
         if not path:
-            path = self._save_dialog(f"{_safe_filename(payload.get('projectName') or 'Untitled')}.{PROJECT_EXTENSION}", PROJECT_TYPES)
+            path = self._save_dialog(f"{_safe_filename(name)}.{PROJECT_EXTENSION}", PROJECT_TYPES)
         if not path:
             return {"ok": False, "cancelled": True}
         if not path.endswith(f".{PROJECT_EXTENSION}"):
             path += f".{PROJECT_EXTENSION}"
         try:
             state = copy.deepcopy(payload)
+            state["projectName"] = name
             design = state.get("goldenGateDesign") or {}
             source = design.get("map") or {}
             if source.get("path") and not source.get("embeddedSnapGene"):
@@ -736,7 +743,7 @@ class NativeAPI:
             return {"ok": False, "error": f"Could not save project: {exc}"}
         self.current_project = path
         self._remember_project(path)
-        return {"ok": True, "path": path, "recent": self.recent_projects()}
+        return {"ok": True, "path": path, "projectName": name, "recent": self.recent_projects()}
 
     def save_project_as(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return self._save_project(payload, True)

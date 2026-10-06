@@ -3,6 +3,7 @@ import json
 import zipfile
 import copy
 from pathlib import Path
+from datetime import datetime
 
 import pytest
 
@@ -12,6 +13,36 @@ from mac_app.main import NativeAPI, _serialize_result
 from plasmid_verify.assembly import assemble_gibson
 from plasmid_verify.verify import verify_consensus
 from plasmid_verify.golden_gate_design import _write_snapgene_map
+
+
+@pytest.mark.parametrize('name,expected', [
+    (None, '2026-10-06 16-23-45'), ('', '2026-10-06 16-23-45'),
+    (' \t ', '2026-10-06 16-23-45'), ('My project', 'My project'),
+    ('  Custom name  ', '  Custom name  '),
+])
+def test_project_name_defaults_to_local_datestamp(name, expected, monkeypatch):
+    from mac_app import main
+    class FixedClock:
+        @staticmethod
+        def now():
+            return datetime(2026, 10, 6, 16, 23, 45)
+    monkeypatch.setattr(main, 'datetime', FixedClock)
+    assert main._project_name(name) == expected
+
+
+def test_unnamed_project_export_uses_and_keeps_timestamp(tmp_path, monkeypatch):
+    monkeypatch.setattr('mac_app.main.application_support', lambda: tmp_path)
+    monkeypatch.setattr('mac_app.main._project_name', lambda value: value if value and value.strip() else '2026-10-06 16-23-45')
+    api = NativeAPI()
+    suggested = []
+    def save_dialog(filename, types):
+        suggested.append(filename)
+        return str(tmp_path / filename)
+    monkeypatch.setattr(api, '_save_dialog', save_dialog)
+    result = api.save_project({'projectName': '  '})
+    assert result['ok'] and result['projectName'] == '2026-10-06 16-23-45'
+    assert suggested == ['2026-10-06_16-23-45.plasmidverify']
+    assert json.loads(Path(result['path']).read_text())['state']['projectName'] == result['projectName']
 
 
 def test_design_drop_registration_reports_missing_target_and_is_idempotent():
@@ -62,6 +93,8 @@ def test_design_library_persists_runs_without_export_folders(tmp_path, monkeypat
     assert set(tmp_path.iterdir()) == {source, tmp_path / 'support'}
     assert not first['temporary'] and not second['temporary']
     assert first['savedRun']['id'] != second['savedRun']['id']
+    datetime.strptime(first['projectState']['projectName'], '%Y-%m-%d %H-%M-%S')
+    assert first['savedRun']['title'] == first['projectState']['projectName']
     assert len(api.list_saved_designs()['runs']) == 2
     assert not api.download_design_file(old_id)['ok']
     assert len(first["graphics"]) == 3  # linear map and two fragment-end views

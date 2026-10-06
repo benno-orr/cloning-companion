@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="${0:A:h}"
 PROJECT_DIR="${SCRIPT_DIR:h}"
-DMG_PATH="${1:-${PROJECT_DIR}/dist/CloningCompanion-1.8.0.dmg}"
+DMG_PATH="${1:-${PROJECT_DIR}/dist/CloningCompanion-1.8.1.dmg}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-}"
 
 if [[ -z "${NOTARY_PROFILE}" ]]; then
