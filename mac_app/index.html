@@ -1,0 +1,794 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CloningCompanion</title>
+  <style>
+    :root {
+      --ink:#162820; --muted:#65766e; --line:#d9e1db; --paper:#f8faf6; --panel:#fff;
+      --forest:#123529; --green:#20785a; --mint:#dff1e5; --amber:#e8a630; --red:#b5433e;
+      --purple:#7665a8; --blue:#438dab; --shadow:0 12px 35px rgba(28,52,41,.08);
+    }
+    * { box-sizing:border-box; }
+    html,body { width:100%; height:100%; margin:0; overflow:hidden; background:var(--paper); color:var(--ink); }
+    body { font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif; -webkit-font-smoothing:antialiased; }
+    button,input,select { font:inherit; }
+    button { cursor:default; }
+    .app { display:grid; grid-template-columns:245px minmax(0,1fr); grid-template-rows:minmax(0,1fr); width:100%; height:100%; min-height:0; overflow:hidden; }
+    .sidebar { background:linear-gradient(165deg,#15372b,#0e251d); color:#f5faf6; padding:42px 19px 20px; display:flex; flex-direction:column; min-height:0; overflow-y:auto; }
+    .brand { display:flex; gap:10px; align-items:center; margin-bottom:31px; padding:0 5px; }
+    .brand-mark { width:38px; height:38px; border-radius:11px; overflow:hidden; background:#102f24; box-shadow:inset 0 0 0 1px rgba(255,255,255,.22); display:grid; place-items:center; }
+    .brand-mark img { width:100%; height:100%; object-fit:cover; }
+    .brand strong { display:block; font-size:15px; letter-spacing:-.01em; }
+    .brand small { color:#adc6bb; font-size:11px; }
+    .side-label { color:#8fb2a2; text-transform:uppercase; letter-spacing:.11em; font-size:10px; font-weight:750; margin:8px 8px; }
+    .nav-item { display:flex; align-items:center; gap:10px; padding:10px 11px; border-radius:9px; color:#cfe0d8; margin:2px 0; font-size:13px; width:100%; border:0; background:transparent; text-align:left; }
+    .nav-item.active { background:rgba(255,255,255,.105); color:white; font-weight:650; }
+    .nav-num { width:22px; height:22px; border-radius:7px; display:grid; place-items:center; background:rgba(255,255,255,.1); font-size:11px; font-weight:700; }
+    .nav-item.active .nav-num { background:#4fa57d; }
+    .method { border-top:1px solid rgba(255,255,255,.1); margin-top:24px; padding-top:21px; }
+    .segmented { display:grid; gap:7px; }
+    .method-option { padding:10px 11px; border:1px solid rgba(255,255,255,.12); color:#c7d9d1; background:rgba(255,255,255,.03); border-radius:9px; text-align:left; font-size:12px; }
+    .method-option.selected { background:#f6faf7; color:#173329; border-color:#f6faf7; font-weight:700; }
+    .method-controls { margin-top:12px; }
+    .method-controls label { display:block; color:#a9c1b6; font-size:11px; margin:10px 2px 5px; }
+    .method-controls input,.method-controls select { width:100%; padding:8px 9px; border:1px solid rgba(255,255,255,.15); border-radius:8px; background:rgba(255,255,255,.09); color:white; outline:none; }
+    .method-controls select option { color:#111; }
+    .enzyme-picker { position:relative; }
+    .enzyme-trigger { width:100%; display:flex; align-items:center; justify-content:space-between; padding:8px 9px; border:1px solid rgba(255,255,255,.15); border-radius:8px; background:rgba(255,255,255,.09); color:#fff; text-align:left; font-size:12px; }
+    .enzyme-trigger:focus-visible { outline:2px solid #9ee0bb; outline-offset:2px; }
+    .enzyme-options { position:absolute; z-index:10; top:calc(100% + 5px); left:0; right:0; padding:4px; border:1px solid #cbd9cf; border-radius:9px; background:#fff; box-shadow:0 12px 28px rgba(0,0,0,.2); }
+    .enzyme-options button { display:block; width:100%; border:0; border-radius:6px; padding:8px; background:transparent; color:#18382c; text-align:left; font-size:12px; }
+    .enzyme-options button:hover,.enzyme-options button:focus-visible { background:#e4f2e9; outline:none; }
+    .privacy { margin-top:auto; color:#8eaaa0; font-size:10px; line-height:1.45; padding:12px 5px 0; border-top:1px solid rgba(255,255,255,.08); }
+    .main { min-width:0; min-height:0; overflow:hidden; display:flex; flex-direction:column; height:100%; }
+    .toolbar { flex-shrink:0; min-height:64px; padding:19px 31px 13px; display:flex; align-items:center; border-bottom:1px solid var(--line); background:rgba(248,250,246,.9); }
+    .toolbar-title { font-size:13px; font-weight:650; }
+    .toolbar-title small { display:block; color:var(--muted); font-weight:450; margin-top:2px; }
+    .toolbar-actions { margin-left:auto; display:flex; gap:8px; }
+    .button { border:1px solid #cad6ce; background:#fff; color:var(--ink); padding:8px 13px; border-radius:9px; font-weight:620; font-size:12px; box-shadow:0 1px 2px rgba(0,0,0,.025); }
+    .button:hover { background:#f2f7f3; }
+    .button.primary { color:white; background:var(--green); border-color:var(--green); }
+    .button.primary:hover { background:#176b4e; }
+    .button:disabled { opacity:.45; }
+    .content { flex:1 1 0; min-height:0; min-width:0; overflow-y:auto; overflow-x:auto; padding:27px 32px 60px; -webkit-overflow-scrolling:touch; }
+    .content-inner { max-width:1120px; margin:0 auto; }
+    .eyebrow { color:var(--green); text-transform:uppercase; letter-spacing:.13em; font-weight:800; font-size:10px; }
+    h1 { margin:5px 0 7px; font-size:30px; letter-spacing:-.035em; }
+    .subtitle { color:var(--muted); font-size:14px; margin:0 0 25px; }
+    .section-title { margin:24px 0 12px; display:flex; align-items:center; gap:9px; font-size:16px; }
+    .step-num { width:25px; height:25px; border-radius:8px; background:var(--mint); color:var(--green); display:grid; place-items:center; font-size:12px; }
+    .picker-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+    .picker { text-align:left; padding:18px; min-height:128px; border:1px dashed #b9cac0; border-radius:13px; background:rgba(255,255,255,.72); transition:.15s; }
+    .picker:hover { border-color:var(--green); background:#fff; box-shadow:var(--shadow); }
+    .picker.loaded { border-style:solid; border-color:#abcaba; }
+    .picker.drag-over { border:2px solid var(--green); background:#e8f5ed; }
+    .graphic-tabs { display:flex; flex-wrap:wrap; gap:8px; padding:14px 17px; }
+    .graphic-tabs .active { background:var(--green); color:white; border-color:var(--green); }
+    .graphic-gallery { padding:0 17px 17px; display:grid; gap:14px; }
+    .graphic-card { margin:0; background:#fff; border:1px solid var(--line); border-radius:9px; overflow:hidden; }
+    .graphic-card figcaption { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:11px 14px; font-size:12px; color:var(--ink); }
+    .graphic-card img { display:block; width:100%; height:auto; cursor:zoom-in; }
+    .graphic-lightbox { width:94vw; max-width:none; height:90vh; border:0; border-radius:12px; padding:0; color:var(--ink); }
+    .graphic-lightbox::backdrop { background:rgba(14,31,24,.7); }
+    .graphic-lightbox header { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:12px 18px; border-bottom:1px solid var(--line); }
+    .graphic-lightbox .image-scroll { height:calc(100% - 61px); overflow:auto; background:white; }
+    .graphic-lightbox img { display:block; width:100%; height:auto; }
+    .graphic-lightbox img.actual-size { width:auto; max-width:none; }
+    .design-summary { margin-top:13px; padding:14px 17px; border:1px solid var(--line); border-radius:13px; background:#fff; color:var(--muted); font-size:12px; }
+    .design-summary strong { color:var(--ink); }
+    .design-enzyme { display:inline-flex; align-items:center; gap:8px; margin-top:12px; color:var(--muted); font-size:12px; }
+    .design-enzyme select { border:1px solid var(--line); border-radius:8px; background:#fff; color:var(--ink); padding:6px 9px; font:inherit; }
+    .design-output { margin-top:16px; }
+    .design-result-table td,.design-result-table th { white-space:nowrap; }
+    .picker-icon { width:32px; height:32px; border-radius:9px; background:var(--mint); color:var(--green); display:grid; place-items:center; margin-bottom:12px; font-size:17px; }
+    .picker-title { font-size:13px; font-weight:720; }
+    .picker-sub { color:var(--muted); font-size:11px; line-height:1.4; margin-top:4px; }
+    .file-summary { margin-top:8px; color:var(--green); font-size:11px; font-weight:650; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+    .panel { background:var(--panel); border:1px solid var(--line); border-radius:14px; box-shadow:0 3px 14px rgba(31,61,47,.035); overflow:hidden; margin-top:13px; }
+    .panel-head { padding:14px 17px; border-bottom:1px solid #e6ece8; display:flex; align-items:center; }
+    .panel-head strong { font-size:13px; }
+    .panel-head span { color:var(--muted); margin-left:8px; font-size:11px; }
+    table { width:100%; border-collapse:collapse; font-size:12px; }
+    th { text-align:left; color:#6b7972; background:#f7f9f6; font-size:10px; text-transform:uppercase; letter-spacing:.06em; padding:9px 12px; border-bottom:1px solid #e5ebe7; }
+    td { padding:9px 12px; border-bottom:1px solid #edf1ee; vertical-align:middle; }
+    tr:last-child td { border-bottom:0; }
+    td .filename { font-weight:630; max-width:260px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+    td .meta { color:var(--muted); font-size:10px; margin-top:2px; }
+    .cell-input { width:100%; min-width:65px; border:1px solid transparent; background:transparent; padding:5px 6px; border-radius:6px; color:var(--ink); }
+    .cell-input:hover,.cell-input:focus { border-color:#c7d7cd; background:#fff; outline:none; }
+    .num-input { max-width:72px; }
+    .backbone-cell,.wps-cell { position:relative; width:100%; min-width:165px; min-height:32px; padding:5px 22px 5px 7px; text-align:left; border:1px dashed #b9cac0; border-radius:7px; background:#fbfdfb; color:var(--green); font-size:10px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+    .backbone-cell:hover,.backbone-cell.drag-over,.wps-cell:hover,.wps-cell.drag-over { border-color:var(--green); background:#edf7ef; }
+    .backbone-cell.assigned,.wps-cell.assigned { border-style:solid; color:var(--ink); }
+    .fill-handle { position:absolute; right:3px; bottom:3px; width:8px; height:8px; border-radius:2px; background:var(--green); cursor:crosshair; }
+    .fill-handle:hover { transform:scale(1.35); }
+    .run-bar { margin-top:18px; background:#eef5ef; border:1px solid #d0ded4; border-radius:13px; padding:12px; display:flex; align-items:center; }
+    .run-copy { font-size:11px; color:var(--muted); line-height:1.4; }
+    .run-copy strong { display:block; color:var(--ink); font-size:12px; }
+    .run-bar .button { margin-left:auto; min-width:190px; }
+    .welcome { display:grid; grid-template-columns:1.4fr 1fr; gap:17px; margin-top:12px; }
+    .welcome-card { background:white; border:1px solid var(--line); border-radius:15px; padding:21px; min-height:150px; }
+    .welcome-card h3 { margin:0 0 6px; font-size:15px; }
+    .welcome-card p { color:var(--muted); font-size:12px; line-height:1.5; margin:0 0 15px; }
+    .recent-row { display:flex; gap:9px; align-items:center; padding:9px 0; border-bottom:1px solid #edf1ee; }
+    .recent-row:last-child { border-bottom:0; }
+    .recent-row button { border:0; background:transparent; text-align:left; color:var(--ink); padding:0; flex:1; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+    .recent-row small { color:var(--muted); }
+    .hidden { display:none !important; }
+    .metrics { display:grid; grid-template-columns:repeat(4,1fr); gap:11px; margin:16px 0; }
+    .metric { padding:14px 15px; background:white; border:1px solid var(--line); border-radius:12px; }
+    .metric span { color:var(--muted); display:block; font-size:10px; text-transform:uppercase; letter-spacing:.07em; }
+    .metric strong { font-size:25px; display:block; margin-top:4px; }
+    .verdict { padding:4px 7px; border-radius:6px; font-size:10px; font-weight:800; letter-spacing:.04em; }
+    .pass { background:#dff2e6; color:#176541; }
+    .review { background:#fff0cf; color:#94600e; }
+    .fail { background:#f8dedb; color:#a43733; }
+    .target-tabs { display:flex; gap:6px; flex-wrap:wrap; margin:19px 0 12px; }
+    .target-tab { border:1px solid var(--line); background:#fff; padding:7px 11px; border-radius:8px; font-size:11px; }
+    .target-tab.selected { background:var(--forest); color:white; border-color:var(--forest); }
+    .map { background:white; border:1px solid var(--line); border-radius:14px; padding:15px 18px 10px; }
+    .map-header { display:flex; align-items:center; margin-bottom:12px; }
+    .map-header strong { font-size:13px; }
+    .map-header span { color:var(--muted); font-size:11px; margin-left:8px; }
+    .track-wrap { position:relative; height:62px; padding-top:20px; }
+    .track { height:24px; width:100%; display:flex; overflow:hidden; border-radius:5px; background:#ddd; }
+    .segment { height:100%; position:relative; min-width:1px; }
+    .pin { position:absolute; top:3px; width:2px; height:16px; transform:translateX(-1px); }
+    .pin::after { content:""; position:absolute; left:-4px; bottom:-1px; width:0; height:0; border-left:5px solid transparent; border-right:5px solid transparent; border-top:6px solid currentColor; }
+    .legend { display:flex; gap:16px; font-size:10px; color:var(--muted); }
+    .legend i { display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:4px; }
+    .detail-line { color:var(--muted); font-size:11px; margin:8px 0 14px; }
+    .mutation-list { display:grid; gap:8px; margin-top:12px; }
+    details { background:#fff; border:1px solid var(--line); border-radius:10px; }
+    summary { list-style:none; display:grid; grid-template-columns:75px 105px 1fr auto; gap:10px; align-items:center; padding:11px 13px; font-size:11px; cursor:default; }
+    summary::-webkit-details-marker { display:none; }
+    .mutation-body { border-top:1px solid #edf1ee; padding:12px 13px; }
+    .mutation-zoom { background:linear-gradient(135deg,#f6faf6,#fdfcf8); border:1px solid #dfe9e1; border-radius:9px; padding:12px; }
+    .zoom-head { display:flex; align-items:center; gap:8px; margin-bottom:9px; color:var(--muted); font-size:10px; }
+    .zoom-head strong { color:var(--ink); font-size:11px; }
+    .zoom-sequences { display:grid; gap:5px; overflow:auto; }
+    .zoom-row { display:grid; grid-template-columns:58px max-content; align-items:center; gap:8px; font:12px/1.45 "SFMono-Regular",Menlo,monospace; white-space:pre; }
+    .zoom-label { color:var(--muted); font:700 9px/1 sans-serif; text-transform:uppercase; letter-spacing:.06em; }
+    .zoom-base { display:inline-block; min-width:7px; text-align:center; border-radius:2px; }
+    .zoom-base.changed { color:#8e332d; background:#ffe0db; font-weight:800; box-shadow:inset 0 -1px 0 #db766a; }
+    .zoom-base.gap { color:#9b650d; background:#fff0cf; }
+    .codon-callout { display:flex; align-items:center; flex-wrap:wrap; gap:7px; margin:11px 0 2px 66px; }
+    .codon-label { color:var(--muted); font-size:10px; }
+    .codon { padding:4px 7px; border-radius:5px; background:#e8f3ea; color:#195d40; font:800 12px "SFMono-Regular",Menlo,monospace; letter-spacing:.05em; }
+    .codon.changed { background:#ffe0db; color:#8e332d; }
+    .aa-call { color:#4a6256; font-size:11px; font-weight:750; }
+    pre { margin:0; padding:11px; border-radius:8px; background:#13261f; color:#dcebe3; overflow:auto; font:11px/1.55 "SFMono-Regular",Menlo,monospace; }
+    .error-list { margin:13px 0; padding:13px 15px; background:#fff2f0; border:1px solid #ebcac5; border-radius:10px; color:#8f3935; font-size:11px; }
+    .empty { padding:32px; text-align:center; color:var(--muted); font-size:12px; }
+    .modal-backdrop { position:fixed; inset:0; background:rgba(14,31,24,.45); display:grid; place-items:center; z-index:50; backdrop-filter:blur(6px); }
+    .modal { width:min(610px,calc(100vw - 70px)); max-height:calc(100vh - 90px); overflow:auto; background:#fff; border-radius:17px; box-shadow:0 30px 90px rgba(0,0,0,.28); }
+    .modal-head { padding:20px 22px 13px; display:flex; align-items:center; border-bottom:1px solid var(--line); }
+    .modal-head h2 { font-size:18px; margin:0; }
+    .modal-close { margin-left:auto; border:0; background:#eef2ef; width:28px; height:28px; border-radius:50%; }
+    .modal-body { padding:20px 22px 24px; font-size:12px; line-height:1.58; color:#43564d; }
+    .modal-body h3 { color:var(--ink); font-size:13px; margin:18px 0 4px; }
+    .modal-body h3:first-child { margin-top:0; }
+    .paste-table { width:100%; min-height:190px; resize:vertical; padding:10px; border:1px solid var(--line); border-radius:8px; font:12px ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--ink); box-sizing:border-box; }
+    .paste-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:12px; }
+    .about-icon { width:82px; height:82px; border-radius:20px; display:block; margin:2px auto 13px; }
+    .about-center { text-align:center; }
+    .toast { position:fixed; right:23px; bottom:21px; z-index:90; background:#18382c; color:white; padding:11px 15px; border-radius:10px; font-size:11px; box-shadow:0 10px 30px rgba(0,0,0,.2); transform:translateY(90px); opacity:0; transition:.25s; max-width:380px; }
+    .toast.show { transform:translateY(0); opacity:1; }
+    .spinner { display:inline-block; width:12px; height:12px; border:2px solid rgba(255,255,255,.35); border-top-color:white; border-radius:50%; animation:spin .8s linear infinite; margin-right:7px; vertical-align:-2px; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    @media(max-width:1050px) { .picker-grid{grid-template-columns:1fr}.welcome{grid-template-columns:1fr}.app{grid-template-columns:215px 1fr}.metrics{grid-template-columns:repeat(2,1fr)} }
+    /* Separate workspaces, shared quiet desktop chrome. */
+    :root { --paper:#f6f7f9; --ink:#202c35; --muted:#73808b; --line:#e1e6ea; --forest:#183e36; --green:#237562; --mint:#e6f2ed; --shadow:0 8px 24px #233b3010; }
+    body[data-workspace="verification"] { --green:#456a9f; --mint:#eaf0f9; --forest:#294c7a; }
+    button { cursor:pointer; }
+    button:disabled { cursor:not-allowed; }
+    button:focus-visible,select:focus-visible,textarea:focus-visible,input:focus-visible,summary:focus-visible { outline:3px solid #80b8af; outline-offset:3px; }
+    .app { grid-template-columns:238px minmax(0,1fr); }
+    .sidebar { background:#edf1f3; color:var(--ink); padding:30px 17px 20px; border-right:1px solid var(--line); }
+    .brand { gap:9px; margin-bottom:35px; padding:0; }
+    .brand-mark { width:34px; height:34px; border-radius:10px; flex-shrink:0; }
+    .brand strong { font-size:14px; letter-spacing:-.035em; }
+    .brand small { color:var(--muted); font-size:10px; }
+    .side-label { color:#86929b; font-size:9px; letter-spacing:.14em; margin:0 10px 10px; }
+    .workspace-switch { display:grid; gap:7px; margin-bottom:28px; }
+    .workspace-button { display:flex; align-items:center; gap:11px; width:100%; padding:13px 11px; border:1px solid transparent; border-radius:11px; background:transparent; color:#70808b; text-align:left; }
+    .workspace-button svg { width:22px; height:22px; flex-shrink:0; }
+    .workspace-button strong { display:block; font-size:13px; color:#3d4c57; margin-bottom:3px; }
+    .workspace-button small { display:block; font-size:10px; }
+    .workspace-button:hover { background:#ffffff80; }
+    .workspace-button.active { background:white; border-color:#dce3e7; color:var(--green); box-shadow:0 3px 8px #263d3110; }
+    .workspace-button.active strong { color:var(--green); }
+    .workspace-button.active::after { content:''; width:6px; height:6px; border-radius:50%; background:var(--green); margin-left:auto; }
+    .nav-item { color:#687682; font-size:12px; padding:10px 12px; margin:3px 0; gap:10px; }
+    .nav-item:hover { background:#e3e9ed; }
+    .nav-item.active { background:var(--mint); color:var(--green); }
+    .nav-num,.nav-item.active .nav-num { background:transparent; color:inherit; width:18px; height:18px; font-size:10px; }
+    .nav-item.active .nav-num { box-shadow:inset 0 0 0 1px currentColor; border-radius:5px; }
+    .method { border-color:#dce3e7; margin-top:25px; padding-top:22px; }
+    .method-option { color:#637582; border-color:#dce3e7; background:#ffffff60; }
+    .method-option.selected { background:var(--mint); color:var(--green); border-color:#c8d7ea; }
+    .method-controls label { color:#687682; }
+    .method-controls input,.method-controls select,.enzyme-trigger { color:var(--ink); background:white; border-color:#d6dfe5; }
+    .privacy { color:#849099; border-color:#dce3e7; padding:16px 8px 0; line-height:1.7; }
+    .privacy strong { color:#63716e; font-weight:550; }
+    .toolbar { min-height:76px; padding:15px 32px; background:#ffffffd9; gap:15px; }
+    .toolbar-title { color:#71808c; font-size:12px; font-weight:500; }
+    .toolbar-title small { font-size:10px; }
+    .workspace-crumb { color:var(--green); font-size:12px; font-weight:650; padding-right:17px; border-right:1px solid var(--line); }
+    .button { border-color:#dbe2e6; border-radius:8px; padding:9px 14px; font-size:11px; }
+    .button.primary:hover { background:var(--forest); }
+    .content { padding:34px 38px 60px; scroll-behavior:smooth; }
+    .content-inner { max-width:1160px; }
+    h1 { font-size:32px; letter-spacing:-.045em; font-weight:650; margin:8px 0 10px; }
+    .subtitle { font-size:13px; line-height:1.7; max-width:740px; margin-bottom:28px; }
+    .eyebrow { font-size:9px; letter-spacing:.16em; }
+    .workflow-trail { display:flex; gap:12px; align-items:center; color:#8c979f; font-size:11px; margin:0 0 25px; }
+    .workflow-trail strong { color:var(--green); font-weight:550; }
+    .workflow-trail i { height:1px; background:#d5dfe2; width:25px; }
+    .section-title { font-size:14px; margin-top:27px; }
+    .picker { background:white; border-color:#cdd9dd; border-radius:12px; padding:20px; }
+    .picker-icon { border-radius:9px; }
+    .design-input-layout { display:grid; grid-template-columns:minmax(0,1.5fr) minmax(250px,1fr); gap:18px; }
+    .design-upload { padding:26px; min-height:224px; display:flex; flex-direction:column; align-items:flex-start; justify-content:center; border:1px dashed #9dbeb5; background:linear-gradient(140deg,#fff,#f4faf7); }
+    .design-upload .picker-icon { width:42px; height:42px; font-size:24px; margin-bottom:16px; }
+    .design-upload .picker-title { font-size:16px; font-weight:600; }
+    .design-upload .picker-sub { font-size:12px; margin-top:8px; }
+    .design-upload .file-summary { white-space:normal; overflow-wrap:anywhere; line-height:1.7; }
+    .design-settings { background:#fff; border:1px solid var(--line); border-radius:12px; padding:22px; }
+    .design-settings h3 { font-size:12px; margin:0 0 18px; font-weight:650; }
+    .design-enzyme { display:flex; align-items:center; justify-content:space-between; margin:0 0 18px; }
+    .design-enzyme select { font-size:12px; padding:8px; }
+    .folder-picker { border:0; border-top:1px solid var(--line); padding:17px 0 0; background:none; width:100%; text-align:left; }
+    .folder-picker .picker-title { font-size:12px; font-weight:550; }
+    .folder-picker .picker-sub { font-size:11px; }
+    .folder-picker .file-summary { font-size:10px; }
+    .feature-guide { margin-top:18px; border-radius:10px; background:transparent; }
+    .feature-guide summary { display:flex; justify-content:space-between; padding:15px 18px; font-size:12px; color:#566670; cursor:pointer; }
+    .feature-guide summary::after { content:'＋'; color:var(--muted); }
+    .feature-guide[open] summary::after { content:'−'; }
+    .feature-guide .design-summary { margin:0; border:0; border-top:1px solid var(--line); border-radius:0; line-height:1.85; background:#fff; }
+    .design-run-bar { gap:20px; background:#fff; border-color:var(--line); padding:18px 20px; }
+    .design-run-bar .button { min-width:170px; padding:12px 18px; }
+    .design-run-bar .file-summary { margin:0; color:inherit; }
+    .panel { box-shadow:none; border-radius:12px; }
+    .panel-head { background:#fcfdfd; gap:6px; flex-wrap:wrap; }
+    .panel-head span { overflow-wrap:anywhere; min-width:0; }
+    .design-output .panel { overflow-x:auto; }
+    textarea { border:1px solid var(--line); border-radius:8px; padding:12px; color:var(--ink); background:#fafbfd; line-height:1.6; }
+    .design-empty { border:1px dashed #d4dde2; border-radius:12px; background:#ffffff80; padding:60px 24px; text-align:center; }
+    .design-empty .picker-icon { margin:0 auto 18px; width:42px; height:42px; }
+    .design-empty h3 { font-size:16px; margin:0 0 8px; }
+    .design-empty p { color:var(--muted); font-size:12px; line-height:1.8; margin:0 0 20px; }
+    .graphic-tabs { gap:6px; }
+    .graphic-tabs .button { font-size:10px; border-radius:7px; padding:8px 10px; }
+    @media(max-width:1050px) { .app{grid-template-columns:218px minmax(0,1fr)} .content{padding:28px 25px 50px}.toolbar{padding:15px 25px}.design-input-layout{grid-template-columns:minmax(0,1.25fr) minmax(235px,1fr)} }
+  </style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">
+        <img src="assets/CloningCompanion-logo.png" alt="Smiling circular plasmid map">
+      </div>
+      <div><strong>CloningCompanion</strong><small>From sequence to certainty</small></div>
+    </div>
+    <div class="side-label">Workspaces</div>
+    <nav class="workspace-switch" aria-label="Workspace">
+      <button class="workspace-button active" id="workspace-design" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 8h5V3h6v5h5v7h-5v6H9v-6H4z"/></svg><span><strong>Design</strong><small>Plan your assembly</small></span></button>
+      <button class="workspace-button" id="workspace-verification" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M12 3l8 3v6c0 5-8 9-8 9s-8-4-8-9V6z"/><path d="M8 11l3 3 5-5"/></svg><span><strong>Verification</strong><small>Check your constructs</small></span></button>
+    </nav>
+    <nav id="design-navigation" aria-label="Design navigation">
+      <div class="side-label">Golden Gate</div>
+      <button class="nav-item active" id="nav-design"><span class="nav-num">1</span>Map & fragments</button>
+      <button class="nav-item" id="nav-design-results"><span class="nav-num">2</span>Graphics & orders</button>
+    </nav>
+    <nav id="verification-navigation" class="hidden" aria-label="Verification navigation">
+      <div class="side-label">Construct QC</div>
+      <button class="nav-item" id="nav-setup"><span class="nav-num">1</span>Inputs & assembly</button>
+      <button class="nav-item" id="nav-results"><span class="nav-num">2</span>Verification results</button>
+    </nav>
+    <div class="method hidden" id="verification-method">
+      <div class="side-label">Cloning method</div>
+      <div class="segmented">
+        <button class="method-option selected" data-method="Gibson">Gibson assembly</button>
+        <button class="method-option" data-method="Golden Gate">Golden Gate</button>
+      </div>
+      <div class="method-controls" id="gibson-controls">
+        <label for="armLength">Terminal homology arm</label>
+        <input id="armLength" type="number" min="10" max="60" value="15">
+      </div>
+      <div class="method-controls hidden" id="golden-controls">
+        <label id="enzyme-label">Type IIS enzyme</label>
+        <div class="enzyme-picker">
+          <button class="enzyme-trigger" id="enzyme-trigger" type="button" aria-labelledby="enzyme-label enzyme-value" aria-haspopup="listbox" aria-expanded="false"><span id="enzyme-value">BsaI</span><span aria-hidden="true">⌄</span></button>
+          <div class="enzyme-options hidden" id="enzyme-options" role="listbox" aria-labelledby="enzyme-label">
+            <button type="button" role="option" data-enzyme="BsaI">BsaI</button>
+            <button type="button" role="option" data-enzyme="BsmBI / Esp3I">BsmBI / Esp3I</button>
+            <button type="button" role="option" data-enzyme="BbsI">BbsI</button>
+            <button type="button" role="option" data-enzyme="SapI">SapI</button>
+            <button type="button" role="option" data-enzyme="AarI">AarI</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="privacy"><strong>Local by design.</strong><br>Your sequences stay on this Mac.<br><button class="button" id="check-updates" style="margin-top:12px">Check for Updates</button></div>
+  </aside>
+
+  <main class="main">
+    <header class="toolbar">
+      <div class="workspace-crumb" id="workspace-crumb">Design / Map & fragments</div>
+      <div class="toolbar-title" id="document-title">Untitled Project<small id="document-status">Ready for input</small></div>
+      <div class="toolbar-actions">
+        <button class="button" id="save-project">Save Project</button>
+        <button class="button primary" id="run-top" disabled>Run Verification</button>
+        <button class="button primary hidden" id="run-design-top" disabled>Generate design</button>
+      </div>
+    </header>
+
+    <section class="content">
+      <div class="content-inner" id="setup-view">
+        <div class="eyebrow">Whole-plasmid sequencing · construct QC</div>
+        <h1>Verify your constructs</h1>
+        <p class="subtitle">Add insert sequences, assign a backbone in the spreadsheet, then pair each WPS consensus to a target.</p>
+
+        <div class="welcome" id="welcome">
+          <div class="welcome-card">
+            <h3>Start a verification project</h3>
+            <p>Start with your insert list. Then assign each row’s backbone and select the intended target for every WPS file.</p>
+            <button class="button primary" id="welcome-inserts">Add Insert Sequences</button>
+          </div>
+          <div class="welcome-card">
+            <h3>Recent projects</h3>
+            <div id="recent-list"><p>No recent projects yet.</p></div>
+          </div>
+        </div>
+
+        <h2 class="section-title"><span class="step-num">1</span>Sequence inputs</h2>
+        <div class="picker-grid">
+          <button class="picker" id="pick-inserts">
+            <div class="picker-icon">＋</div><div class="picker-title">Ordered inserts</div>
+            <div class="picker-sub">FASTA, .dna, CSV, TSV, or Excel; filenames begin with target IDs.</div><div class="file-summary" id="insert-summary">Choose files…</div>
+          </button>
+          <button class="picker" id="paste-inserts">
+            <div class="picker-icon">⌘</div><div class="picker-title">Paste insert table</div>
+            <div class="picker-sub">Paste CSV or tab-separated rows with target ID and DNA sequence.</div><div class="file-summary">Add rows directly…</div>
+          </button>
+          <button class="picker" id="pick-consensuses">
+            <div class="picker-icon">✓</div><div class="picker-title">WPS consensuses</div>
+            <div class="picker-sub">One whole-plasmid FASTA or .dna consensus per target.</div><div class="file-summary" id="consensus-summary">Choose files…</div>
+          </button>
+        </div>
+
+        <div id="mapping-area"></div>
+        <div class="run-bar">
+          <div class="run-copy"><strong id="readiness-title">Add all three input groups</strong><span id="readiness-detail">The generated target will be compared with each WPS consensus.</span></div>
+          <button class="button primary" id="run-main" disabled>Build Targets & Verify</button>
+        </div>
+      </div>
+
+      <div class="content-inner hidden" id="results-view">
+        <div class="eyebrow">Verification report</div>
+        <h1>Whole-plasmid results</h1>
+        <p class="subtitle">Every difference is classified using the generated target’s per-base provenance.</p>
+        <div id="results-content"></div>
+      </div>
+
+      <div class="content-inner hidden" id="design-view">
+        <div class="eyebrow">Golden Gate design</div>
+        <h1>Plan your next assembly.</h1>
+        <p class="subtitle">Start with your annotated plasmid. Get compatible junctions, order-ready fragments, and a clear picture of how everything fits together.</p>
+        <div class="workflow-trail"><strong>01 &nbsp; Annotated map</strong><i></i><span>02 &nbsp; Fragment options</span><i></i><span>03 &nbsp; Graphics & orders</span></div>
+        <div class="design-input-layout">
+          <button class="picker design-upload" id="pick-design-map">
+            <div class="picker-icon">⌁</div><div class="picker-title">Annotated design map</div>
+            <div class="picker-sub">Drop your SnapGene .dna file here, or click to choose it.</div><div class="file-summary" id="design-map-summary">Drop or choose a .dna map…</div>
+          </button>
+          <div class="design-settings"><h3>Assembly settings</h3>
+            <label class="design-enzyme">Type IIS enzyme <select id="design-enzyme"><option value="BsmBI">BsmBI / Esp3I</option><option value="BsaI">BsaI</option></select></label>
+          <button class="folder-picker" id="pick-design-output">
+            <div class="picker-title">Save location <span style="color:var(--muted)">↗</span></div>
+            <div class="picker-sub">Results are saved automatically. Click to choose another folder.</div><div class="file-summary" id="design-output-summary">Automatic save location</div>
+          </button>
+          <button class="button hidden" id="reset-design-output" style="margin-top:10px">Use automatic save location</button>
+          </div>
+        </div>
+        <details class="feature-guide"><summary>How to annotate your SnapGene map</summary><div class="design-summary"><strong>Feature labels:</strong> use <code>[name]</code> for a fragment that is fixed across constructs and <code>{name}</code> for a fragment that varies across constructs. The core overlapping <code>pUC ori</code> or <code>ori pUC</code> is automatically the backbone. The order of cores on the circular map is the assembly order. Add one <code>(name)</code> or <code>-</code> feature at each core boundary; it marks where that junction may be placed. Each junction region must be at least 4 bp. Other ordinary annotations are ignored. The detected backbone is output as PCR; other cores as synthesis fragments.</div></details>
+        <div id="design-variable-elements"></div>
+        <div class="run-bar design-run-bar"><div class="run-copy"><strong id="design-readiness">Your assembly starts with a map</strong><span>Junction schematics · synthesis fragments · PCR primers</span></div><button class="button primary" id="run-design" disabled><span class="file-summary">Generate design →</span></button></div>
+      </div>
+      <div class="content-inner hidden" id="design-results-view">
+        <div class="eyebrow">Golden Gate design · output</div>
+        <h1>Your assembly, resolved.</h1>
+        <p class="subtitle">Explore junctions, inspect the assembled product, and find every sequence you need to order.</p>
+        <div id="design-results" class="design-output"></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="modal-backdrop hidden" id="modal-backdrop">
+  <div class="modal">
+    <div class="modal-head"><h2 id="modal-title"></h2><button class="modal-close" id="modal-close">×</button></div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+<dialog class="graphic-lightbox" id="graphic-lightbox">
+  <header><strong id="graphic-lightbox-title"></strong><div><button class="button" id="graphic-zoom">Actual size</button> <button class="button" id="graphic-close">Close</button></div></header>
+  <div class="image-scroll"><img id="graphic-lightbox-image" alt="Expanded design graphic"></div>
+</dialog>
+
+<script>
+const state = {
+  method:'Gibson', armLength:15, enzyme:'BsaI', inserts:[], consensuses:[], results:[], failures:[], recent:[], designMap:null, designOutputFolder:null, designVariableTexts:{}
+};
+const regionColors = {'backbone':'#8da399','junction':'#e7a93b','non-coding':'#7665a8','coding':'#2a8c68'};
+const categoryColors = {'backbone':'#657c71','junction':'#d88a15','non-coding':'#7665a8','silent':'#438dab','missense':'#d15b45','nonsense':'#a22f35','stop loss':'#a22f35','frameshift':'#711e45','in-frame insertion':'#ca4f44','in-frame deletion':'#ca4f44'};
+const esc = value => String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+const fmt = value => Number(value).toLocaleString();
+let designGraphics=[];
+let designBusy=false;
+let verificationBusy=false;
+let updateBusy=false;
+let activeView='design';
+const workspaceViews={design:'design',verification:'setup'};
+
+function renderGraphicGallery(group='Linear map'){
+  const gallery=document.getElementById('graphic-gallery');if(!gallery)return;
+  if(!designGraphics.some(graphic=>graphic.group===group))group=designGraphics[0]?.group;
+  gallery.innerHTML=designGraphics.map((graphic,index)=>graphic.group===group?`<figure class="graphic-card"><figcaption><strong>${esc(graphic.title)}</strong><button class="button" data-graphic-file="${index}">Show image file</button></figcaption><img src="${esc(graphic.src)}" alt="${esc(graphic.title)}" data-graphic="${index}" loading="lazy"></figure>`:'').join('');
+  if(group==='Fragment ends')gallery.insertAdjacentHTML('afterbegin','<p style="margin:0;color:var(--muted);font-size:12px;line-height:1.6">Separate fragment ends before digestion. Gray bases are removed; stepped lines show the cuts. Each view includes 12 bases of each flanking core and any intervening linker.</p>');
+  document.querySelectorAll('[data-graphic-group]').forEach(button=>button.classList.toggle('active',button.dataset.graphicGroup===group));
+  gallery.querySelectorAll('[data-graphic]').forEach(image=>image.onclick=()=>{
+    const graphic=designGraphics[Number(image.dataset.graphic)];
+    document.getElementById('graphic-lightbox-title').textContent=graphic.title;
+    const enlarged=document.getElementById('graphic-lightbox-image');enlarged.src=graphic.src;enlarged.classList.remove('actual-size');
+    document.getElementById('graphic-zoom').textContent='Actual size';document.getElementById('graphic-lightbox').showModal();
+  });
+  gallery.querySelectorAll('[data-graphic-file]').forEach(button=>button.onclick=()=>pywebview.api.reveal_in_finder(designGraphics[Number(button.dataset.graphicFile)].sourcePath).catch(error=>toast(String(error),true)));
+}
+
+function designGraphicsPanel(result){
+  const groups=['Linear map','Fragment ends'].filter(group=>designGraphics.some(graphic=>graphic.group===group));
+  return `<section class="panel"><div class="panel-head"><strong>Design graphics</strong><span>Click any image to enlarge</span><button class="button" id="show-design-files" style="margin-left:auto">Show saved files</button></div><div class="graphic-tabs">${groups.map(group=>`<button class="button" data-graphic-group="${esc(group)}">${esc(group)}</button>`).join('')}</div><div class="graphic-gallery" id="graphic-gallery"></div></section>`;
+}
+
+function toast(message, error=false) {
+  const el=document.getElementById('toast'); el.textContent=message; el.style.background=error?'#8f3835':'#18382c'; el.classList.add('show');
+  clearTimeout(window.toastTimer); window.toastTimer=setTimeout(()=>el.classList.remove('show'),3300);
+}
+function currentProjectState() {
+  return {method:state.method,armLength:state.armLength,enzyme:state.enzyme,parentPath:'',inserts:state.inserts,consensuses:state.consensuses,goldenGateDesign:{map:state.designMap,outputFolder:state.designOutputFolder,enzyme:document.getElementById('design-enzyme').value,variableTexts:state.designVariableTexts}};
+}
+window.getProjectState=currentProjectState;
+function setDocument(path) {
+  document.getElementById('document-title').childNodes[0].textContent=path?path.split('/').pop().replace(/\.plasmidverify$/,''):'Untitled Project';
+}
+function setMethod(method) {
+  state.method=method;
+  document.querySelectorAll('.method-option').forEach(el=>el.classList.toggle('selected',el.dataset.method===method));
+  document.getElementById('gibson-controls').classList.toggle('hidden',method!=='Gibson');
+  document.getElementById('golden-controls').classList.toggle('hidden',method!=='Golden Gate');
+  closeEnzymeOptions();
+  updateReady();
+}
+function closeEnzymeOptions() {
+  document.getElementById('enzyme-options').classList.add('hidden');
+  document.getElementById('enzyme-trigger').setAttribute('aria-expanded','false');
+}
+function setEnzyme(name) {
+  const option=Array.from(document.querySelectorAll('#enzyme-options [data-enzyme]')).find(el=>el.dataset.enzyme===name);
+  if(!option)return;
+  state.enzyme=name;
+  document.getElementById('enzyme-value').textContent=name;
+  document.querySelectorAll('#enzyme-options [data-enzyme]').forEach(el=>el.setAttribute('aria-selected',String(el===option)));
+  closeEnzymeOptions();
+}
+function updateReady() {
+  const hasBackboneForTarget=targetId=>{const rows=state.inserts.filter(row=>row.targetId===targetId);return rows.length>0&&rows.every(row=>row.backbone?.path)};
+  const targets=targetIds();
+  const ready=!!(targets.length&&state.consensuses.length===targets.length&&targets.every(targetId=>hasBackboneForTarget(targetId)&&state.consensuses.filter(row=>row.targetId===targetId).length===1));
+  document.getElementById('run-main').disabled=!ready; document.getElementById('run-top').disabled=!ready;
+  document.getElementById('readiness-title').textContent=ready?`${state.consensuses.length} target${state.consensuses.length===1?'':'s'} ready to verify`:'Complete the spreadsheet pairing';
+  document.getElementById('readiness-detail').textContent=ready?`${state.inserts.length} ordered insert${state.inserts.length===1?'':'s'} · ${state.method}`:'Every insert needs a backbone and every target needs exactly one WPS file.';
+}
+function targetIds(){return [...new Set(state.inserts.map(row=>String(row.targetId||'').trim()).filter(Boolean))];}
+function assignWpsByTargetOrder(){const targets=targetIds();state.consensuses.sort((a,b)=>a.filename.localeCompare(b.filename));state.consensuses.forEach((row,index)=>row.targetId=targets[index]||'');}
+function setTargetWps(targetId,wps){state.consensuses=state.consensuses.filter(row=>row.targetId!==targetId);if(wps)state.consensuses.push({...wps,targetId});renderInputs();}
+function renderRecent() {
+  const el=document.getElementById('recent-list');
+  if(!state.recent.length){el.innerHTML='<p>No recent projects yet.</p>';return;}
+  el.innerHTML=state.recent.map((item,i)=>`<div class="recent-row"><button data-recent="${i}">${esc(item.name)}</button><small>Open</small></div>`).join('');
+  el.querySelectorAll('[data-recent]').forEach(button=>button.onclick=()=>openRecent(Number(button.dataset.recent)));
+}
+function renderInputs() {
+  document.getElementById('insert-summary').textContent=state.inserts.length?`${state.inserts.length} file${state.inserts.length===1?'':'s'} selected`:'Choose files…';
+  document.getElementById('pick-inserts').classList.toggle('loaded',!!state.inserts.length);
+  document.getElementById('consensus-summary').textContent=state.consensuses.length?`${state.consensuses.length} target${state.consensuses.length===1?'':'s'} selected`:'Choose files…';
+  document.getElementById('pick-consensuses').classList.toggle('loaded',!!state.consensuses.length);
+  document.getElementById('welcome').classList.toggle('hidden',!!(state.inserts.length||state.consensuses.length));
+  let html='';
+  if(state.inserts.length){
+    const firstRowByTarget={};state.inserts.forEach((row,index)=>{if(firstRowByTarget[row.targetId]===undefined||Number(row.order)<Number(state.inserts[firstRowByTarget[row.targetId]].order))firstRowByTarget[row.targetId]=index;});
+    html+=`<div class="panel"><div class="panel-head"><strong>Assembly spreadsheet</strong><span>Drop a WPS file onto its target’s WPS cell, or use bulk upload for alphabetical pairing.</span></div><table><thead><tr><th>Insert file</th><th>Backbone</th><th>WPS consensus</th><th>Target ID</th><th>Order</th><th>5′ non-coding</th><th>3′ non-coding</th></tr></thead><tbody>`;
+    state.inserts.forEach((row,i)=>{const backbone=row.backbone;const backboneLabel=backbone?`${backbone.filename} · ${fmt(backbone.length)} bp`:'Drop .fasta/.dna or click to choose';const wps=state.consensuses.find(item=>item.targetId===row.targetId);const isTargetFirst=firstRowByTarget[row.targetId]===i;const wpsLabel=wps?`${wps.filename} · ${fmt(wps.length)} bp`:'Drop .fasta/.dna or click to choose';const wpsCell=isTargetFirst?`<button class="wps-cell ${wps?'assigned':''}" data-wps-target="${esc(row.targetId)}" title="${esc(wps?.path||'')}">${esc(wpsLabel)}</button>`:'<span class="meta">↳ same target</span>';html+=`<tr><td><div class="filename" title="${esc(row.path)}">${esc(row.filename)}</div><div class="meta">${fmt(row.length)} bp</div></td><td><button class="backbone-cell ${backbone?'assigned':''}" data-backbone="${i}" title="${esc(backbone?.path||'')}">${esc(backboneLabel)}<i class="fill-handle" data-fill="${i}" title="Drag to fill down"></i></button></td><td>${wpsCell}</td><td><input class="cell-input" data-insert="${i}" data-field="targetId" value="${esc(row.targetId)}"></td><td><input class="cell-input num-input" type="number" min="1" data-insert="${i}" data-field="order" value="${row.order}"></td><td><input class="cell-input num-input" type="number" min="0" data-insert="${i}" data-field="noncoding5" value="${row.noncoding5}"></td><td><input class="cell-input num-input" type="number" min="0" data-insert="${i}" data-field="noncoding3" value="${row.noncoding3}"></td></tr>`});
+    html+='</tbody></table></div>';
+  }
+  const area=document.getElementById('mapping-area'); area.innerHTML=html;
+  area.querySelectorAll('[data-insert]').forEach(input=>input.onchange=()=>{const row=state.inserts[Number(input.dataset.insert)];row[input.dataset.field]=input.type==='number'?Number(input.value):input.value;if(input.dataset.field==='targetId')renderInputs();else updateReady();});
+  area.querySelectorAll('[data-backbone]').forEach(cell=>{
+    const index=Number(cell.dataset.backbone);
+    cell.onclick=async event=>{if(event.target.dataset.fill!==undefined)return;try{const backbone=await pywebview.api.choose_backbone();if(backbone){state.inserts[index].backbone=backbone;renderInputs();}}catch(e){toast(String(e),true)}};
+    cell.ondragover=event=>{event.preventDefault();cell.classList.add('drag-over')};
+    cell.ondragleave=()=>cell.classList.remove('drag-over');
+    cell.ondrop=event=>{event.preventDefault();cell.classList.remove('drag-over');};
+  });
+  area.querySelectorAll('[data-wps-target]').forEach(cell=>{
+    const targetId=cell.dataset.wpsTarget;
+    cell.onclick=async()=>{try{const wps=await pywebview.api.choose_wps();if(wps){setTargetWps(targetId,wps);toast(`Assigned ${wps.filename}`)}}catch(e){toast(String(e),true)}};
+    cell.ondragover=event=>{event.preventDefault();cell.classList.add('drag-over')};
+    cell.ondragleave=()=>cell.classList.remove('drag-over');
+    cell.ondrop=event=>{event.preventDefault();cell.classList.remove('drag-over');};
+  });
+  area.querySelectorAll('[data-fill]').forEach(handle=>handle.onpointerdown=event=>{event.preventDefault();event.stopPropagation();const source=state.inserts[Number(handle.dataset.fill)].backbone;if(!source){toast('Choose a backbone before filling it into other rows',true);return;}const apply=target=>{const cell=target.closest?.('[data-backbone]');if(cell){state.inserts[Number(cell.dataset.backbone)].backbone={...source};renderInputs();}};const move=moveEvent=>apply(document.elementFromPoint(moveEvent.clientX,moveEvent.clientY));document.addEventListener('pointermove',move);document.addEventListener('pointerup',()=>document.removeEventListener('pointermove',move),{once:true});});
+  updateReady();
+  const wpsTargets=[...area.querySelectorAll('[data-wps-target]')].map(cell=>cell.dataset.wpsTarget);
+  if(window.pywebview?.api?.register_drop_targets)pywebview.api.register_drop_targets(wpsTargets).catch(error=>toast(`Could not enable file drop: ${error}`,true));
+}
+window.nativeBackboneDropped=(index,backbone)=>{if(state.inserts[index]){state.inserts[index].backbone=backbone;renderInputs();toast(`Assigned ${backbone.filename}`)}};
+window.nativeBackboneDropFailed=(index,message)=>toast(`Backbone drop failed: ${message}`,true);
+window.nativeWpsDropped=(targetId,wps)=>{setTargetWps(targetId,wps);toast(`Assigned ${wps.filename}`)};
+window.nativeWpsDropFailed=(targetId,message)=>toast(`WPS drop failed: ${message}`,true);
+function assignInsertOrders(items){const counts={};items.forEach(item=>{const key=item.targetId||'';if(item.sequence&&Number(item.order)>0){counts[key]=Math.max(counts[key]||0,Number(item.order));}else{item.order=(counts[key]||0)+1;counts[key]=item.order;}});return items;}
+async function chooseInserts(){try{const items=await pywebview.api.choose_inserts();if(items?.length){state.inserts=assignInsertOrders(items);renderInputs();}}catch(e){toast(String(e),true)}}
+function openPasteInserts(){
+  document.getElementById('modal-title').textContent='Paste insert table';
+  document.getElementById('modal-body').innerHTML=`<p>Paste CSV or tab-separated values. Required columns: <b>target_id</b> (or <b>clone_id</b>) and <b>sequence</b> (or <b>dna_sequence</b>). Optional: <b>name</b>, <b>order</b>.</p><textarea id="pasted-insert-table" class="paste-table" placeholder="target_id,name,sequence,order\nT01,insert_01,ACGT...,1\nT01,insert_02,TTGA...,2"></textarea><div class="paste-actions"><button class="button" id="cancel-paste">Cancel</button><button class="button primary" id="import-paste">Add inserts</button></div>`;
+  document.getElementById('modal-backdrop').classList.remove('hidden');
+  document.getElementById('cancel-paste').onclick=closeModal;
+  document.getElementById('import-paste').onclick=async()=>{try{const text=document.getElementById('pasted-insert-table').value;const items=await pywebview.api.parse_pasted_inserts(text);if(!items?.length)throw new Error('No insert rows found');state.inserts=assignInsertOrders(items);closeModal();renderInputs();toast(`${items.length} insert${items.length===1?'':'s'} added`)}catch(e){toast(String(e),true)}};
+  document.getElementById('pasted-insert-table').focus();
+}
+async function chooseConsensuses(){try{const items=await pywebview.api.choose_consensuses();if(items?.length){state.consensuses=items;assignWpsByTargetOrder();renderInputs();}}catch(e){toast(String(e),true)}}
+
+async function runVerification(){
+  if(!(state.inserts.length&&state.consensuses.length))return;
+  verificationBusy=true;
+  state.armLength=Number(document.getElementById('armLength').value);
+  const buttons=[document.getElementById('run-main'),document.getElementById('run-top')];buttons.forEach(b=>{b.disabled=true;b.innerHTML='<span class="spinner"></span>Analyzing…'});
+  document.getElementById('document-status').textContent='Building targets and aligning WPS…';
+  try{
+    const response=await pywebview.api.run_verification(currentProjectState());
+    if(!response.ok)throw new Error(response.error);
+    state.results=response.results;state.failures=response.failures||[];renderResults();showView('results');
+    document.getElementById('document-status').textContent=`${state.results.length} target${state.results.length===1?'':'s'} verified`;
+  }catch(e){toast(`Verification failed: ${e}`,true);document.getElementById('document-status').textContent='Verification failed';}
+  finally{verificationBusy=false;buttons.forEach((b,i)=>{b.disabled=false;b.textContent=i?'Run Verification':'Build Targets & Verify'});updateReady();}
+}
+function showView(view){
+  const labels={design:'Map & fragments','design-results':'Graphics & orders',setup:'Inputs & assembly',results:'Verification results'};
+  if(!labels[view])return;
+  const design=view.startsWith('design'),workspace=design?'design':'verification';
+  activeView=view;workspaceViews[workspace]=view;document.body.dataset.workspace=workspace;
+  for(const name of Object.keys(labels)){
+    document.getElementById(`${name}-view`).classList.toggle('hidden',view!==name);
+    const nav=document.getElementById(`nav-${name}`);nav.classList.toggle('active',view===name);
+    if(view===name)nav.setAttribute('aria-current','page');else nav.removeAttribute('aria-current');
+  }
+  for(const name of ['design','verification']){
+    const selected=name===workspace,button=document.getElementById(`workspace-${name}`);
+    button.classList.toggle('active',selected);button.setAttribute('aria-pressed',String(selected));
+    document.getElementById(`${name}-navigation`).classList.toggle('hidden',!selected);
+  }
+  document.getElementById('verification-method').classList.toggle('hidden',design);
+  document.getElementById('run-top').classList.toggle('hidden',design);
+  document.getElementById('run-design-top').classList.toggle('hidden',!design);
+  document.getElementById('workspace-crumb').textContent=`${design?'Design':'Verification'} / ${labels[view]}`;
+  closeEnzymeOptions();document.querySelector('.content').scrollTop=0;
+}
+function renderResults(selectedId=null){
+  const root=document.getElementById('results-content');
+  if(!state.results.length){root.innerHTML=`<div class="empty">No completed targets. Return to Inputs & assembly to inspect errors.</div>${failureHtml()}`;return;}
+  const selected=state.results.find(r=>r.targetId===selectedId)||state.results[0];
+  const verdicts=state.results.reduce((a,r)=>(a[r.verdict]=(a[r.verdict]||0)+1,a),{});
+  let html=`<div class="metrics"><div class="metric"><span>Targets</span><strong>${state.results.length}</strong></div><div class="metric"><span>Pass</span><strong>${verdicts.PASS||0}</strong></div><div class="metric"><span>Review</span><strong>${verdicts.REVIEW||0}</strong></div><div class="metric"><span>Fail</span><strong>${verdicts.FAIL||0}</strong></div></div>`;
+  html+=`<div class="panel"><table><thead><tr><th>Target</th><th>Verdict</th><th>Method</th><th>Target</th><th>WPS</th><th>Mutations</th></tr></thead><tbody>`;
+  state.results.forEach(r=>{html+=`<tr><td><strong>${esc(r.targetId)}</strong></td><td><span class="verdict ${r.verdict.toLowerCase()}">${r.verdict}</span></td><td>${esc(r.method)}</td><td>${fmt(r.targetLength)} bp</td><td>${fmt(r.observedLength)} bp</td><td>${r.mutations.length}</td></tr>`});
+  html+='</tbody></table></div>';
+  html+=`<div class="target-tabs">${state.results.map(r=>`<button class="target-tab ${r.targetId===selected.targetId?'selected':''}" data-target="${esc(r.targetId)}">${esc(r.targetId)} · ${r.verdict}</button>`).join('')}</div>`;
+  html+=targetDetail(selected)+failureHtml();root.innerHTML=html;
+  root.querySelectorAll('[data-target]').forEach(b=>b.onclick=()=>renderResults(b.dataset.target));
+}
+function failureHtml(){return state.failures.length?`<div class="error-list"><strong>${state.failures.length} input or assembly error${state.failures.length===1?'':'s'}</strong>${state.failures.map(f=>`<div>${esc(f.targetId)} — ${esc(f.error)}</div>`).join('')}</div>`:''}
+function zoomBases(sequence,other){return [...sequence].map((base,index)=>`<span class="zoom-base ${base!==other[index]?'changed':''} ${base==='-'?'gap':''}">${esc(base)}</span>`).join('')}
+function mutationZoom(m){const a=m.alignment;const codon=m.codon;const codonHtml=codon?`<div class="codon-callout"><span class="codon-label">Codon ${fmt(codon.aaPosition)} · nt ${fmt(codon.codonStart)}–${fmt(codon.codonStart+2)}</span><span class="codon">${esc(codon.expected)}</span><span>→</span><span class="codon changed">${esc(codon.observed)}</span><span class="aa-call">${esc(codon.expectedAa)}${fmt(codon.aaPosition)}${codon.expectedAa===codon.observedAa?'=':codon.observedAa}</span></div>`:'';return `<div class="mutation-zoom"><div class="zoom-head"><strong>Sequence zoom</strong><span>the highlighted base${m.target.length===1?'':'s'} differs from the generated target</span></div><div class="zoom-sequences"><div class="zoom-row"><span class="zoom-label">Target</span><span>${zoomBases(a.target,a.observed)}</span></div><div class="zoom-row"><span class="zoom-label">WPS</span><span>${zoomBases(a.observed,a.target)}</span></div></div>${codonHtml}</div>`}
+function targetDetail(r){
+  const segments=r.runs.map(run=>`<div class="segment" style="width:${(run.end-run.start)/r.targetLength*100}%;background:${regionColors[run.region]||'#999'}" title="${esc(run.source)} · ${esc(run.region)} · ${fmt(run.start+1)}–${fmt(run.end)}"></div>`).join('');
+  const pins=r.mutations.map(m=>`<i class="pin" style="left:${(m.position-1)/r.targetLength*100}%;background:${categoryColors[m.category]||'#b5433e'};color:${categoryColors[m.category]||'#b5433e'}" title="${esc(`${m.position}: ${m.category} ${m.target}→${m.observed}`)}"></i>`).join('');
+  let html=`<div class="map"><div class="map-header"><strong>${esc(r.targetId)} target map</strong><span>${fmt(r.targetLength)} bp · ${esc(r.method)}</span><span class="verdict ${r.verdict.toLowerCase()}" style="margin-left:auto">${r.verdict}</span></div><div class="track-wrap">${pins}<div class="track">${segments}</div></div><div class="legend">${Object.entries(regionColors).map(([k,v])=>`<span><i style="background:${v}"></i>${esc(k)}</span>`).join('')}</div></div>`;
+  html+=`<div class="detail-line">${r.mutations.length} difference${r.mutations.length===1?'':'s'} · ${esc(r.orientation)} orientation · rotated ${fmt(r.rotation)} bp</div>`;
+  if(!r.mutations.length)return html+'<div class="panel"><div class="empty"><strong>Exact full-plasmid match.</strong><br>The WPS consensus is identical to the generated circular target.</div></div>';
+  html+='<div class="mutation-list">';
+  r.mutations.forEach(m=>{html+=`<details><summary><strong>${fmt(m.position)}</strong><span class="verdict" style="color:${categoryColors[m.category]||'#555'};background:${categoryColors[m.category]||'#555'}18">${esc(m.category)}</span><span>${esc(m.target)} → ${esc(m.observed)}</span><span>${esc(m.protein_change||m.source)}</span></summary><div class="mutation-body">${mutationZoom(m)}<div class="detail-line">${esc(m.mutation)} · ${esc(m.region)} · source: ${esc(m.source)}</div></div></details>`});
+  return html+'</div>';
+}
+
+function renderDesignResults(result=null){
+  const root=document.getElementById('design-results');
+  designGraphics=result?.graphics||[];
+  updateDesignReady();
+  if(!result){root.innerHTML='<div class="design-empty"><div class="picker-icon">⌁</div><h3>A clear view of your assembly</h3><p>Generate a design to see junction graphics, sequence maps,<br>and your complete list of fragments to order.</p><button class="button" id="back-to-design">Go to map & fragments →</button></div>';document.getElementById('back-to-design').onclick=()=>showView('design');return;}
+  const junctions=(result.junctions||[]).map(j=>`<tr><td>${esc(j.junction_id)}</td><td><code>${esc(j.selected_fusion)}</code></td><td>${fmt(j.offset_in_allowed_region)}</td><td>${esc(j.candidate_region_source)}</td></tr>`).join('');
+  const fragments=(result.fragments||[]).map(f=>`<tr><td>${fmt(f.assembly_position)} · ${esc(f.element_name)}<br><strong>${esc(f.name)}</strong></td><td>${esc(f.source)}</td><td><code>${esc(f.left_fusion)}</code> → <code>${esc(f.right_fusion)}</code></td><td>${fmt(f.final_fragment_bp)} bp</td></tr>`).join('');
+  const warnings=(result.warnings||[]).length?`<div class="error-list"><strong>Design warnings</strong>${result.warnings.map(w=>`<div>${esc(w)}</div>`).join('')}</div>`:'';
+  const variants=(result.mapVariants||[]).filter(v=>v.variant_name).map(v=>`${esc(v.element_name)}: ${esc(v.variant_name)}`).join('; ');
+  const validation=result.sequenceValidation?`<div class="design-summary"><strong>Sequence check:</strong> ${esc(result.sequenceValidation)}. Native linker and junction bases are preserved.</div>`:'';
+  const cleanOutput='';
+  const mapOutput=result.assembledMap?`<div class="panel"><div class="panel-head"><strong>Saved design files</strong><span>${fmt(result.assembledBp)} bp circular product</span></div><div class="design-summary">Editable SnapGene files are still included in the output folder: <code>assembled_product_map.dna</code> and <code>assembly_schematic.dna</code>.${variants?`<br><strong>Representative construct:</strong> first option from each variable list (${variants}). Other variants are alternatives, not additional pieces.`:''}<br>The <strong>Linear map</strong> shows the assembled junctions; <strong>Fragment ends</strong> shows the separate pieces before digestion.</div></div>`:'';
+  root.innerHTML=`<div class="panel"><div class="panel-head"><strong>${esc(result.project)} complete</strong><span>${fmt(result.scaffoldBp)} bp scaffold · ${esc(result.enzyme)}</span></div><table class="design-result-table"><thead><tr><th>Junction</th><th>Selected fusion</th><th>Offset</th><th>Allowed region</th></tr></thead><tbody>${junctions}</tbody></table></div><div class="panel"><div class="panel-head"><strong>Assembly pieces and alternatives</strong><span>Output: ${esc(result.outputDir)}</span></div><div class="design-summary">Order synthesis DNA from <code>synthesis_order.tsv</code> or <code>synthesis_order.fasta</code>; PCR oligos are in <code>pcr_primers.tsv</code>. Choose exactly one option per assembly position in <code>assembly_recipe.tsv</code>. Fixed parts appear once.</div><table class="design-result-table"><thead><tr><th>Position / element / option</th><th>Source</th><th>Fusions</th><th>Final length</th></tr></thead><tbody>${fragments}</tbody></table></div>${validation}${cleanOutput}${mapOutput}${warnings}`;
+  if(designGraphics.length){
+    if(result.automaticJunctions?.length){
+      const additions=result.automaticJunctions.map(j=>`<tr><td>${esc(j.junction_id)}</td><td><code>${esc(j.scaffold_region)}</code></td><td>${esc(j.left_fragment)}<br><code>${esc(j.left_end)}</code></td><td>${esc(j.right_fragment)}<br><code>${esc(j.right_end)}</code></td></tr>`).join('');
+      root.insertAdjacentHTML('afterbegin',`<section class="panel"><div class="panel-head"><strong>Automatic “-” junction bases</strong></div><div class="design-summary">These bases come from the uploaded scaffold. The app includes the required portions at the flanking fragment ends. The shared four bases occur once in the assembled product. Do not include “-” bases in pasted variable cores.</div><table><thead><tr><th>Junction</th><th>Full scaffold region</th><th>Left-fragment end</th><th>Right-fragment start</th></tr></thead><tbody>${additions}</tbody></table></section>`);
+    }
+    root.insertAdjacentHTML('afterbegin',designGraphicsPanel(result));
+    root.querySelectorAll('[data-graphic-group]').forEach(button=>button.onclick=()=>renderGraphicGallery(button.dataset.graphicGroup));
+    document.getElementById('show-design-files').onclick=()=>pywebview.api.reveal_in_finder(result.outputDir).catch(error=>toast(String(error),true));
+    renderGraphicGallery();
+  }
+}
+function renderVariableElements(){
+  const root=document.getElementById('design-variable-elements');
+  root.innerHTML=(state.designMap?.variableFragments||[]).map(f=>`<div class="panel"><div class="panel-head"><strong>Variants for {${esc(f.name)}}</strong><span>One order fragment per named DNA sequence</span></div><div style="padding:16px"><p style="margin:0 0 10px;color:var(--muted);font-size:12px">Paste two columns (name and core DNA), a CSV table, or FASTA. Optional column headers: <code>name</code> and <code>dna_sequence</code>. Supply only the variable core: omit bases labelled <code>-</code>, including any overlap with this core label. The app copies those junction/linker bases from the scaffold and includes them at the flanking fragment ends. Do not add enzyme adapters or overhangs. Leave blank to use the scaffold sequence.</p><textarea data-variable-id="${esc(f.id)}" aria-label="Variants for ${esc(f.name)}" rows="6" style="width:100%;box-sizing:border-box;resize:vertical;font-family:monospace" placeholder="name&#9;dna_sequence&#10;parental&#9;ATGGCC...&#10;sweeping&#9;ATGAGC...">${esc(state.designVariableTexts[f.id]||'')}</textarea></div></div>`).join('');
+  root.querySelectorAll('textarea').forEach(input=>input.addEventListener('input',()=>{state.designVariableTexts[input.dataset.variableId]=input.value;renderDesignResults();}));
+}
+async function chooseAnnotatedDesignMap(){
+  try{const map=await pywebview.api.choose_annotated_design_map();if(map)acceptDesignMap(map)}catch(e){toast(String(e),true)}
+}
+function acceptDesignMap(map){
+  if(designBusy){toast('Wait for the current design to finish before changing the map',true);return;}
+  if(state.designMap?.path!==map.path)state.designVariableTexts={};state.designMap=map;
+  document.getElementById('design-map-summary').textContent=`${map.filename} · backbone: ${map.backboneName} · ${map.fragmentCount} fragments · ${map.junctionCount} junctions`;
+  document.getElementById('pick-design-map').classList.add('loaded');renderVariableElements();renderDesignResults();toast(`Read ${map.filename}`);
+}
+window.nativeDesignDropped=map=>{document.getElementById('pick-design-map').classList.remove('drag-over');acceptDesignMap(map)};
+window.nativeDesignDropFailed=message=>{document.getElementById('pick-design-map').classList.remove('drag-over');toast(message,true)};
+function refreshDesignOutput(){
+  document.getElementById('design-output-summary').textContent=state.designOutputFolder||'Automatic save location';
+  document.getElementById('pick-design-output').classList.toggle('loaded',!!state.designOutputFolder);
+  document.getElementById('reset-design-output').classList.toggle('hidden',!state.designOutputFolder);
+}
+function updateDesignReady(){
+  document.getElementById('run-design').disabled=!state.designMap||designBusy;
+  const top=document.getElementById('run-design-top');top.disabled=!state.designMap||designBusy;top.textContent=designBusy?'Designing…':'Generate design';
+  document.getElementById('design-readiness').textContent=designBusy?'Choosing junctions and building your outputs…':state.designMap?`${state.designMap.fragmentCount} fragments · ${state.designMap.junctionCount} junctions · ready to design`:'Your assembly starts with a map';
+}
+async function chooseDesignOutput(){
+  try{const folder=await pywebview.api.choose_design_output_folder();if(!folder)return;state.designOutputFolder=folder;refreshDesignOutput();toast('Output folder selected')}catch(e){toast(String(e),true)}
+}
+async function runAnnotatedGoldenGateDesign(){
+  if(!state.designMap){toast('Drop or choose an annotated SnapGene map first',true);return;}
+  if(designBusy)return;designBusy=true;
+  updateDesignReady();
+  const inputs=document.querySelectorAll('#pick-design-map,#pick-design-output,#reset-design-output,#design-enzyme,#design-variable-elements textarea');inputs.forEach(input=>input.disabled=true);
+  const button=document.getElementById('run-design');button.disabled=true;button.querySelector('.file-summary').innerHTML='<span class="spinner"></span>Designing…';
+  try{const enzyme=document.getElementById('design-enzyme').value;const result=await pywebview.api.run_annotated_golden_gate_design(state.designMap.path,state.designOutputFolder,enzyme,state.designVariableTexts);if(!result.ok)throw new Error(result.error);renderDesignResults(result);showView('design-results');toast(`Design ready · ${result.fragments.length} fragments saved`)}catch(e){renderDesignResults();toast(`Golden Gate design failed: ${e}`,true)}
+  finally{designBusy=false;inputs.forEach(input=>input.disabled=false);button.querySelector('.file-summary').textContent='Generate design →';updateDesignReady();}
+}
+
+async function saveProject(asNew=false){
+  try{const result=await pywebview.api[asNew?'save_project_as':'save_project'](currentProjectState());if(result.ok){state.recent=result.recent||state.recent;renderRecent();setDocument(result.path);toast(`Saved ${result.path.split('/').pop()}`)}}catch(e){toast(String(e),true)}
+}
+window.saveProjectFromMenu=()=>saveProject(false);
+window.loadProjectFromNative=result=>applyProject(result);
+async function openRecent(index){const result=await pywebview.api.open_project(state.recent[index].path);if(result.ok)applyProject(result);else if(result.error)toast(result.error,true)}
+function applyProject(result){
+  const p=result.state;state.inserts=p.inserts||[];state.consensuses=p.consensuses||[];state.recent=result.recent||state.recent;
+  const design=p.goldenGateDesign||{};state.designMap=design.map||null;state.designOutputFolder=design.outputFolder||null;state.designVariableTexts=design.variableTexts||{};
+  document.getElementById('design-enzyme').value=design.enzyme||'BsmBI';
+  document.getElementById('design-map-summary').textContent=state.designMap?.filename||'Choose a .dna map…';
+  refreshDesignOutput();
+  document.getElementById('pick-design-map').classList.toggle('loaded',!!state.designMap);
+  document.getElementById('pick-design-output').classList.toggle('loaded',!!state.designOutputFolder);
+  renderVariableElements();renderDesignResults();
+  setMethod(p.method||'Gibson');document.getElementById('armLength').value=p.armLength||15;setEnzyme(p.enzyme||'BsaI');setDocument(result.path);renderRecent();renderInputs();showView(state.designMap&&!state.inserts.length?'design':'setup');
+  if(result.missing?.length)toast(`${result.missing.length} referenced sequence file${result.missing.length===1?' is':'s are'} missing`,true);else toast('Project opened');
+}
+window.newProject=()=>{applyProject({state:{},path:null});state.results=[];state.failures=[];};
+window.nativeExportFinished=result=>{if(result.ok)toast(`Saved ${result.path.split('/').pop()}`);else if(result.error)toast(result.error,true)};
+async function exportKind(kind){try{const result=await pywebview.api[kind]();window.nativeExportFinished(result)}catch(e){toast(String(e),true)}}
+
+const modalContent={
+  about:{title:'About CloningCompanion',body:`<div class="about-center"><div class="brand-mark about-icon"><img src="assets/CloningCompanion-logo.png" alt="Smiling circular plasmid map"></div><h3>CloningCompanion <span id="about-version"></span></h3><p>Whole-plasmid verification plus scaffold-aware Golden Gate fragment design.</p><p>Sequence data is processed entirely on this Mac.</p></div>`},
+  help:{title:'CloningCompanion Help',body:`<h3>Verification workspace</h3><p>Add inserts first. In the assembly spreadsheet, assign a FASTA or SnapGene <b>.dna</b> backbone in every row; drag the green corner to fill it into other rows. Then add WPS files.</p><h3>Golden Gate design workspace</h3><p>Start with one annotated SnapGene <b>.dna</b> map. Feature labels in <b>[square brackets]</b> are fixed fragment cores; labels in <b>{curly brackets}</b> are variable fragment cores. The core that overlaps <b>pUC ori</b> or <b>ori pUC</b> is automatically the backbone. The map order is assembly order. Add exactly one <b>(parenthesized)</b> or <b>-</b> feature touching each boundary between cores to mark the allowed placement range. Other ordinary annotations are ignored. The app searches each highlighted region for compatible 4 bp fusions and writes <b>junctions.tsv</b>, <b>candidate_options.tsv</b>, <b>fragments.tsv</b>, <b>assembly_recipe.tsv</b>, <b>pcr_primers.tsv</b>, and <b>synthesis_order.fasta</b>.</p><h3>Verification Golden Gate</h3><p>For sequence QC, insert sequences must include inward-facing Type IIS sites and matching fusion overhangs. The assigned backbone must contain a matching destination cassette.</p>`}
+};
+window.showModal=kind=>{const content=modalContent[kind];document.getElementById('modal-title').textContent=content.title;document.getElementById('modal-body').innerHTML=content.body;document.getElementById('modal-backdrop').classList.remove('hidden');if(kind==='about')document.getElementById('about-version').textContent=`${window.appVersion||'1.0.0'}`};
+function closeModal(){if(!updateBusy)document.getElementById('modal-backdrop').classList.add('hidden')}
+
+window.checkForUpdates=async()=>{
+  if(updateBusy)return;
+  document.getElementById('modal-title').textContent='CloningCompanion updates';
+  const body=document.getElementById('modal-body');
+  body.innerHTML='<p>Checking for updates…</p>';
+  document.getElementById('modal-backdrop').classList.remove('hidden');
+  try{
+    if(!window.pywebview?.api?.check_for_updates)throw new Error('Open the desktop app to check for updates.');
+    const result=await pywebview.api.check_for_updates();
+    if(!result.ok)throw new Error(result.error);
+    body.innerHTML=`<p>Installed: <b>${esc(window.appVersion)}</b>${result.available?` · Available: <b>${esc(result.version)}</b>`:''}</p><p>${esc(result.message)}</p><p>Source: ${esc(result.channel||'GitHub Releases')}. Internet updates are cryptographically signed. Your sequence files are never uploaded.</p>`;
+    if(result.available&&result.canInstall){
+      body.innerHTML+='<p>Your unsaved project inputs will be saved and restored. Existing output files remain on disk; verification results can be regenerated. The previous app will be kept as a backup beside the app or in Application Support.</p><button class="button primary" id="install-update">Update & Restart</button>';
+      document.getElementById('install-update').onclick=async()=>{
+        if(designBusy||verificationBusy){toast('Wait for the current run to finish before updating.',true);return;}
+        updateBusy=true;
+        document.getElementById('modal-close').disabled=true;
+        body.innerHTML='<p><span class="spinner"></span> Downloading, preparing and verifying the update… The app will restart when ready.</p>';
+        try{
+          const installed=await pywebview.api.install_update(currentProjectState());
+          if(!installed.ok)throw new Error(installed.error);
+          body.innerHTML='<p>Update verified. Restarting…</p>';
+        }catch(e){updateBusy=false;document.getElementById('modal-close').disabled=false;body.innerHTML=`<p>${esc(e)}</p><p>Your installed app has not been replaced.</p>`;}
+      };
+    }
+  }catch(e){body.innerHTML=`<p>${esc(e)}</p>`;}
+};
+
+document.querySelectorAll('.method-option').forEach(button=>button.onclick=()=>setMethod(button.dataset.method));
+document.getElementById('armLength').onchange=e=>state.armLength=Number(e.target.value);
+document.getElementById('enzyme-trigger').onclick=()=>{
+  const options=document.getElementById('enzyme-options');
+  const expanded=options.classList.toggle('hidden')===false;
+  document.getElementById('enzyme-trigger').setAttribute('aria-expanded',String(expanded));
+};
+document.querySelectorAll('#enzyme-options [data-enzyme]').forEach(button=>button.onclick=()=>setEnzyme(button.dataset.enzyme));
+document.addEventListener('click',event=>{if(!event.target.closest('.enzyme-picker'))closeEnzymeOptions()});
+document.getElementById('welcome-inserts').onclick=chooseInserts;
+document.getElementById('pick-inserts').onclick=chooseInserts;document.getElementById('paste-inserts').onclick=openPasteInserts;document.getElementById('pick-consensuses').onclick=chooseConsensuses;
+document.getElementById('run-main').onclick=runVerification;document.getElementById('run-top').onclick=runVerification;
+document.getElementById('pick-design-map').onclick=chooseAnnotatedDesignMap;document.getElementById('pick-design-output').onclick=chooseDesignOutput;document.getElementById('run-design').onclick=runAnnotatedGoldenGateDesign;
+document.getElementById('reset-design-output').onclick=()=>{state.designOutputFolder=null;refreshDesignOutput()};
+const designDrop=document.getElementById('pick-design-map');
+designDrop.ondragover=event=>{event.preventDefault();if(!designBusy)designDrop.classList.add('drag-over')};
+designDrop.ondragleave=event=>{if(!designDrop.contains(event.relatedTarget))designDrop.classList.remove('drag-over')};
+designDrop.ondrop=event=>{event.preventDefault();designDrop.classList.remove('drag-over')};
+document.getElementById('graphic-close').onclick=()=>document.getElementById('graphic-lightbox').close();
+document.getElementById('graphic-zoom').onclick=()=>{const actual=document.getElementById('graphic-lightbox-image').classList.toggle('actual-size');document.getElementById('graphic-zoom').textContent=actual?'Fit to window':'Actual size'};
+document.getElementById('design-enzyme').onchange=()=>renderDesignResults();
+document.getElementById('save-project').onclick=()=>saveProject(false);
+document.getElementById('check-updates').onclick=window.checkForUpdates;
+document.getElementById('nav-setup').onclick=()=>showView('setup');document.getElementById('nav-results').onclick=()=>showView('results');document.getElementById('nav-design').onclick=()=>showView('design');
+document.getElementById('nav-design-results').onclick=()=>showView('design-results');
+document.getElementById('workspace-design').onclick=()=>showView(workspaceViews.design);
+document.getElementById('workspace-verification').onclick=()=>showView(workspaceViews.verification);
+document.getElementById('run-design-top').onclick=runAnnotatedGoldenGateDesign;
+document.getElementById('modal-close').onclick=closeModal;document.getElementById('modal-backdrop').onclick=e=>{if(e.target===e.currentTarget)closeModal()};
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal();closeEnzymeOptions()}});
+let nativeBridgeInitialization=null;
+function initializeNativeBridge(){
+  if(nativeBridgeInitialization)return nativeBridgeInitialization;
+  if(!window.pywebview?.api?.app_info)return Promise.resolve(false);
+  nativeBridgeInitialization=(async()=>{
+    try{
+      const enabled=await pywebview.api.register_design_drop_target();
+      if(!enabled)throw new Error('The SnapGene drop target was not found');
+      const info=await pywebview.api.app_info();window.appVersion=info.version;state.recent=info.recent||[];renderRecent();renderInputs();
+      if(info.updateRecovery){applyProject(info.updateRecovery);await pywebview.api.acknowledge_update_recovery();toast('Project inputs restored after update. Existing outputs are still saved on disk.');}
+      if(info.updateRecoveryError)toast(info.updateRecoveryError,true);
+      return true;
+    }catch(e){nativeBridgeInitialization=null;toast(`Native bridge did not initialize: ${e}`,true);return false}
+  })();
+  return nativeBridgeInitialization;
+}
+// pywebview dispatches this non-bubbling event on window, not document.
+window.addEventListener('pywebviewready',initializeNativeBridge);
+// Also handle a bridge injected before this script finishes loading.
+if(window.pywebview?.api?.app_info)initializeNativeBridge();
+// Initial workspace render.
+showView('design');renderDesignResults();renderResults();updateReady();
+setEnzyme(state.enzyme);
+</script>
+</body>
+</html>

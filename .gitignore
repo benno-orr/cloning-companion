@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.DS_Store
+build/
+dist/
+mac_app_icon.iconset/
+*.pem
+*.key
+*.dna
+*.fasta
+*.fa
+*.fna
+*.plasmidverify
+*.tar.gz
