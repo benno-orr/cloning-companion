@@ -388,7 +388,7 @@
           </button>
           <div class="design-settings"><h3>Assembly settings</h3>
             <label class="design-enzyme">Type IIS enzyme <select id="design-enzyme"><option value="BsmBI">BsmBI / Esp3I</option><option value="BsaI">BsaI</option></select></label>
-          <div class="design-summary"><strong>Preview first, download when ready.</strong><br>No output folder is created automatically. Results stay in this app session; choose what to save after generating your design.</div>
+          <div class="design-summary"><strong>Saved in the app. Export when ready.</strong><br>Completed runs stay in your local design library after restarting. No export folder is created unless you download files.</div>
           </div>
         </div>
         <details class="feature-guide"><summary>How to annotate your SnapGene map</summary><div class="design-summary"><strong>Feature labels:</strong> use <code>[name]</code> for a fragment that is fixed across constructs and <code>{name}</code> for a fragment that varies across constructs. The core overlapping <code>pUC ori</code> or <code>ori pUC</code> is automatically the backbone. The order of cores on the circular map is the assembly order. Add one <code>(name)</code> or <code>-</code> feature at each core boundary; it marks where that junction may be placed. Each junction region must be at least 4 bp. Other ordinary annotations are ignored. The detected backbone is output as PCR; other cores as synthesis fragments.</div></details>
@@ -399,6 +399,7 @@
         <div class="eyebrow">Golden Gate design · output</div>
         <h1>Your assembly, resolved.</h1>
         <p class="subtitle">Explore junctions, inspect the assembled product, and find every sequence you need to order.</p>
+        <section class="panel"><div class="panel-head"><strong>Saved designs</strong><span>Stored locally in the app</span></div><div class="graphic-tabs"><select id="saved-design-select" aria-label="Saved design" style="flex:1;min-width:180px;max-width:100%;padding:9px"></select><button class="button" id="open-saved-design">Open saved run</button></div></section>
         <div id="design-results" class="design-output"></div>
       </div>
     </section>
@@ -462,7 +463,27 @@ function designDownloadsPanel(result){
   const files=result.downloads||[];
   const labels={'synthesis_order.tsv':'Sequences to order · TSV','synthesis_order.fasta':'Sequences to order · FASTA','pcr_primers.tsv':'PCR primers · TSV','assembly_recipe.tsv':'Assembly recipe · TSV','assembly_schematic.dna':'Assembly schematic · SnapGene'};
   const button=f=>`<button class="button" data-download="${esc(f.id)}">${esc(labels[f.filename]||f.relativePath)}</button>`;
-  return `<section class="panel" id="design-downloads"><div class="panel-head"><strong>Download outputs</strong><span>Only saved when you choose to download</span></div><div class="design-summary">Results are temporary and will be replaced by the next successful run or cleared when the app closes. Download anything you want to keep. Saving a project saves inputs, not these generated outputs.</div><div class="graphic-tabs"><button class="button primary" data-download-bundle="all">Download everything · ZIP</button><button class="button" data-download-bundle="plasmids">All plasmids · ZIP</button><button class="button" data-download-bundle="orders">Order sequences & primers · ZIP</button><button class="button" data-download-bundle="graphics">All graphics · ZIP</button></div><div class="graphic-tabs">${files.filter(f=>labels[f.filename]).map(button).join('')}</div><details class="feature-guide"><summary>Reports & additional files</summary><div class="graphic-tabs">${files.filter(f=>!labels[f.filename]&&f.group==='other').map(button).join('')}</div></details></section>`;
+  return `<section class="panel" id="design-downloads"><div class="panel-head"><strong>Download outputs</strong><span>Saved in app${result.savedRun?` · ${esc(new Date(result.savedRun.created).toLocaleString())}`:''}</span></div><div class="design-summary">This completed run is kept in your local design library, including its graphics and downloadable files. New runs and app restarts do not replace it. Download only when you want a separate file or ZIP. Opening saved outputs does not change your current map inputs.</div><div class="graphic-tabs"><button class="button primary" data-download-bundle="all">Download everything · ZIP</button><button class="button" data-download-bundle="plasmids">All plasmids · ZIP</button><button class="button" data-download-bundle="orders">Order sequences & primers · ZIP</button><button class="button" data-download-bundle="graphics">All graphics · ZIP</button></div><div class="graphic-tabs">${files.filter(f=>labels[f.filename]).map(button).join('')}</div><details class="feature-guide"><summary>Reports & additional files</summary><div class="graphic-tabs">${files.filter(f=>!labels[f.filename]&&f.group==='other').map(button).join('')}</div></details></section>`;
+}
+
+function renderSavedDesigns(selectedId){
+  const select=document.getElementById('saved-design-select');
+  const selected=selectedId||select.value;
+  select.innerHTML=(state.savedDesigns||[]).map(run=>`<option value="${esc(run.id)}">${esc(new Date(run.created).toLocaleString())} · ${esc(run.title)} · ${fmt(run.plasmidCount)} plasmids</option>`).join('')||'<option value="">No saved designs yet</option>';
+  if((state.savedDesigns||[]).some(run=>run.id===selected))select.value=selected;
+  select.disabled=designBusy||!state.savedDesigns?.length;
+  document.getElementById('open-saved-design').disabled=select.disabled;
+}
+async function refreshSavedDesigns(selectedId){
+  const result=await pywebview.api.list_saved_designs();
+  if(!result.ok){toast(result.error,true);return;}
+  state.savedDesigns=result.runs;renderSavedDesigns(selectedId);
+}
+async function openSavedDesign(id){
+  if(designBusy||!id)return;
+  designBusy=true;updateDesignReady();
+  try{const result=await pywebview.api.open_saved_design(id);if(!result.ok)throw new Error(result.error);renderDesignResults(result);renderSavedDesigns(id);showView('design-results');toast('Saved design opened')}catch(e){toast(String(e),true)}
+  finally{designBusy=false;updateDesignReady();}
 }
 
 function toast(message, error=false) {
@@ -673,6 +694,7 @@ function updateDesignReady(){
   document.getElementById('run-design').disabled=!state.designMap||designBusy;
   const top=document.getElementById('run-design-top');top.disabled=!state.designMap||designBusy;top.textContent=designBusy?'Designing…':'Generate design';
   document.getElementById('design-readiness').textContent=designBusy?'Choosing junctions and building your outputs…':state.designMap?`${state.designMap.fragmentCount} fragments · ${state.designMap.junctionCount} junctions · ready to design`:'Your assembly starts with a map';
+  renderSavedDesigns();
 }
 async function runAnnotatedGoldenGateDesign(){
   if(!state.designMap){toast('Drop or choose an annotated SnapGene map first',true);return;}
@@ -680,7 +702,7 @@ async function runAnnotatedGoldenGateDesign(){
   updateDesignReady();
   const inputs=document.querySelectorAll('#pick-design-map,#design-enzyme,#design-variable-elements textarea');inputs.forEach(input=>input.disabled=true);
   const button=document.getElementById('run-design');button.disabled=true;button.querySelector('.file-summary').innerHTML='<span class="spinner"></span>Designing…';
-  try{const enzyme=document.getElementById('design-enzyme').value;const result=await pywebview.api.run_annotated_golden_gate_design(state.designMap.path,null,enzyme,state.designVariableTexts);if(!result.ok)throw new Error(result.error);renderDesignResults(result);showView('design-results');toast(`Design ready · ${result.fragments.length} fragments available to download`)}catch(e){renderDesignResults();toast(`Golden Gate design failed: ${e}`,true)}
+  try{const enzyme=document.getElementById('design-enzyme').value;const result=await pywebview.api.run_annotated_golden_gate_design(state.designMap.path,null,enzyme,state.designVariableTexts);if(!result.ok)throw new Error(result.error);renderDesignResults(result);await refreshSavedDesigns(result.savedRun?.id);showView('design-results');toast(`Saved in app · ${result.fragments.length} fragments available to download`)}catch(e){renderDesignResults();toast(`Golden Gate design failed: ${e}`,true)}
   finally{designBusy=false;inputs.forEach(input=>input.disabled=false);button.querySelector('.file-summary').textContent='Generate design →';updateDesignReady();}
 }
 
@@ -723,7 +745,7 @@ window.checkForUpdates=async()=>{
     if(!result.ok)throw new Error(result.error);
     body.innerHTML=`<p>Installed: <b>${esc(window.appVersion)}</b>${result.available?` · Available: <b>${esc(result.version)}</b>`:''}</p><p>${esc(result.message)}</p><p>Source: ${esc(result.channel||'GitHub Releases')}. Internet updates are cryptographically signed. Your sequence files are never uploaded.</p>`;
     if(result.available&&result.canInstall){
-      body.innerHTML+='<p>Your unsaved project inputs will be saved and restored. Download any design outputs you want to keep before restarting: temporary results will be cleared. Files you already downloaded remain unchanged. The previous app will be kept as a backup beside the app or in Application Support.</p><button class="button primary" id="install-update">Update & Restart</button>';
+      body.innerHTML+='<p>Your unsaved project inputs will be saved and restored. Completed designs remain in your local app library across restarts. Files you already downloaded remain unchanged. The previous app will be kept as a backup beside the app or in Application Support.</p><button class="button primary" id="install-update">Update & Restart</button>';
       document.getElementById('install-update').onclick=async()=>{
         if(designBusy||verificationBusy){toast('Wait for the current run to finish before updating.',true);return;}
         updateBusy=true;
@@ -763,6 +785,7 @@ document.getElementById('save-project').onclick=()=>saveProject(false);
 document.getElementById('check-updates').onclick=window.checkForUpdates;
 document.getElementById('nav-setup').onclick=()=>showView('setup');document.getElementById('nav-results').onclick=()=>showView('results');document.getElementById('nav-design').onclick=()=>showView('design');
 document.getElementById('nav-design-results').onclick=()=>showView('design-results');
+document.getElementById('open-saved-design').onclick=()=>openSavedDesign(document.getElementById('saved-design-select').value);
 document.getElementById('workspace-design').onclick=()=>showView(workspaceViews.design);
 document.getElementById('workspace-verification').onclick=()=>showView(workspaceViews.verification);
 document.getElementById('run-design-top').onclick=runAnnotatedGoldenGateDesign;
@@ -777,7 +800,10 @@ function initializeNativeBridge(){
       const enabled=await pywebview.api.register_design_drop_target();
       if(!enabled)throw new Error('The SnapGene drop target was not found');
       const info=await pywebview.api.app_info();window.appVersion=info.version;state.recent=info.recent||[];renderRecent();renderInputs();
-      if(info.updateRecovery){applyProject(info.updateRecovery);await pywebview.api.acknowledge_update_recovery();toast('Project inputs restored. Rerun to regenerate temporary outputs; downloaded files are unchanged.');}
+      state.savedDesigns=info.savedDesigns||[];renderSavedDesigns();
+      if(info.updateRecovery){applyProject(info.updateRecovery);await pywebview.api.acknowledge_update_recovery();toast('Project inputs restored. Completed designs are available in Saved designs.');}
+      if(state.savedDesigns.length&&!info.updateRecovery)await openSavedDesign(state.savedDesigns[0].id);
+      if(info.designLibraryError)toast(info.designLibraryError,true);
       if(info.updateRecoveryError)toast(info.updateRecoveryError,true);
       return true;
     }catch(e){nativeBridgeInitialization=null;toast(`Native bridge did not initialize: ${e}`,true);return false}

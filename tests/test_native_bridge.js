@@ -13,7 +13,7 @@ async function check(alreadyReady) {
     register_design_drop_target: async () => { registrations++; return true; },
     app_info: async () => ({version: 'test', recent: []}),
   };
-  const context = vm.createContext({window, state: {}, renderRecent() {renders++;}, renderInputs() {},
+  const context = vm.createContext({window, state: {}, renderRecent() {renders++;}, renderInputs() {}, renderSavedDesigns() {},
     toast(message) {throw new Error(message);}});
   if (alreadyReady) window.pywebview = context.pywebview = {api};
   vm.runInContext(bootstrap, context);

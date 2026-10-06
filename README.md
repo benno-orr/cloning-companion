@@ -42,7 +42,7 @@ Outputs:
 
 ```text
 dist/CloningCompanion.app
-dist/CloningCompanion-1.6.0.dmg
+dist/CloningCompanion-1.7.0.dmg
 ```
 
 When `SIGN_IDENTITY` is omitted, the build script uses an ad-hoc signature suitable for local testing. For public distribution, use a Developer ID Application certificate:
@@ -61,8 +61,9 @@ waits for the running app to exit, replaces it, and reopens it. A `CloningCompan
 beside the installed app, or under Application Support/CloningCompanion/Updates when the app’s parent folder is protected.
 For a writable app in a protected parent folder, the updater swaps its Contents on the same filesystem.
 If replacement or launching fails, the old bundle is restored.
-Inputs restore automatically. Download design outputs before restarting: unsaved temporary results are cleared.
-Previously downloaded files remain unchanged; design and verification results can be rerun.
+Inputs restore automatically. Completed runs created in 1.7.0 or later remain in the local app library across restarts.
+When upgrading from 1.6.0, download any temporary results you need before restarting, or regenerate them afterward.
+Previously downloaded files remain unchanged; verification results can be rerun.
 Recovery files and helper logs are under `~/Library/Application Support/CloningCompanion/Updates/install-*`.
 Pre-1.3.0 installations need a one-time app replacement to acquire the updater; subsequent updates need no DMG.
 Read-only/translocated apps must first be moved to Applications.
@@ -145,7 +146,9 @@ Each junction also has a high-resolution `junction_screencaps/*_clean.png` figur
 
 The **Joined junctions** gallery shows complementary ends aligned across a stepped cut line. `junction_screencaps/*_joined.png` and `junction_joined_overview.png` show each four-base fusion once, with both strands colored by native core membership, including fusions that cross a core boundary. Copies appended to a neighboring fragment retain their source core's color. Connecting DNA outside labelled cores is assigned to the downstream core for coloring. The same provenance is retained for pasted variants of different lengths. Noncoding bases are lowercase when native translated-feature annotations are available.
 
-Drop an annotated `.dna` file onto the design-map input or click to choose one, then run. Starting in 1.6.0, desktop results are temporary by default: no persistent output folder is created, including when opening an older project that specified one. File-based renderers use a temporary staging directory that is removed on completion or failure; the latest successful run's downloadable files are held in memory until replaced or the app exits. Existing saved designs are not deleted. Use **Download outputs** to save individual SnapGene plasmids, synthesis TSV/FASTA, PCR primers, schematics and reports, or ZIP bundles of all outputs, plasmids, order files, or graphics. Each download opens a native save dialog. Cancelling creates no file. Save Project saves inputs, not generated results. The CLI retains its explicit output-directory behavior.
+Drop an annotated `.dna` file onto the design-map input or click to choose one, then run. Starting in 1.7.0, completed designs are saved automatically **inside the app**, not in an exported output folder. Each successful run is committed transactionally to a local SQLite library at `~/Library/Application Support/CloningCompanion/DesignLibrary/designs.sqlite3`, with its report, graphics and exact output bytes. The renderer's temporary staging directory is removed. **Graphics & orders → Saved designs** reopens any completed run, including after restarting or moving the original input file; opening outputs does not replace current input settings. New runs do not overwrite earlier runs. Nothing is uploaded. Existing saved/exported designs are untouched; older output folders are not automatically imported.
+
+Use **Download outputs** to export individual SnapGene plasmids, synthesis TSV/FASTA, PCR primers, schematics and reports, or ZIP bundles of all outputs, plasmids, order files, or graphics. Each download opens a native save dialog. Cancelling creates no export. Save Project preserves inputs separately from the app's completed-run library. The CLI retains its explicit output-directory behavior. Version 1.6.0's memory-only results must be downloaded before upgrading or regenerated in 1.7.0 to enter the library.
 
 For each `{variable core}`, paste a list of named core DNA sequences in its variant box: two tab-separated columns, CSV (optional `name` and `dna_sequence` headers), or FASTA. The app adds the selected shared fusions and enzyme adapters to every version. Fixed pieces are output once. `synthesis_order.tsv` and `synthesis_order.fasta` contain one synthesis fragment per version; PCR variants get individual primer pairs in `pcr_primers.tsv`. Choose one option per assembly position in `assembly_recipe.tsv`. The SnapGene assembled map and junction PNGs represent the first option from each list, not all combinations. Save Project preserves the pasted lists. Empty lists use the core from the original map, which must contain unambiguous DNA. These checks do not predict experimental ligation fidelity or substitute for vendor/manufacturability review.
 

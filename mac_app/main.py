@@ -34,11 +34,11 @@ from plasmid_verify.fasta import clean_sequence, infer_target_id, parse_sequence
 from plasmid_verify.golden_gate_design import plan_from_annotated_snapgene, run_annotated_snapgene_design, run_plan
 from plasmid_verify.models import AssemblyResult, Mutation, VerificationResult
 from plasmid_verify.verify import verify_consensus
-from mac_app import local_updates, github_updates
+from mac_app import local_updates, github_updates, design_library
 
 
 APP_NAME = "CloningCompanion"
-APP_VERSION = "1.6.0"
+APP_VERSION = "1.7.0"
 PROJECT_EXTENSION = "plasmidverify"
 SEQUENCE_TYPES = ("Sequence files (*.fasta;*.fa;*.fna;*.fas;*.dna)", "All files (*.*)")
 INSERT_TYPES = (
@@ -473,14 +473,14 @@ class NativeAPI:
         try:
             if not map_path:
                 raise ValueError("Choose an annotated SnapGene map first")
-            # Older saved projects may include output_folder. Desktop results
-            # now always require an explicit download, regardless of that value.
+            # Legacy output folders are ignored: save inside the app library;
+            # exporting ordinary files still requires an explicit download.
             return self._temporary_design(lambda root: run_annotated_snapgene_design(map_path, root, enzyme, variable_texts))
         except Exception as exc:
             return {"ok": False, "error": str(exc), "detail": traceback.format_exc(limit=5)}
 
     def _temporary_design(self, generate) -> Dict[str, Any]:
-        """Stage file-based renderers temporarily, then retain only bytes in RAM."""
+        """Clean renderer staging, then commit a complete run to the app library."""
         with self._design_lock:
             with tempfile.TemporaryDirectory(prefix="cloning-companion-design-") as workspace:
                 result = _design_previews(generate(Path(workspace)))
@@ -518,14 +518,30 @@ class NativeAPI:
                 result = relative(result)
                 result.pop("outputDir", None)
                 result.update(downloads=downloads, temporary=True)
-            # Replace only after a successful run and after staging is removed.
+            result.update(savedRun=design_library.save(application_support(), result, files), temporary=False)
+            # Replace the active view only after a successful durable save.
             self._design_files = files
             return result
+
+    def list_saved_designs(self) -> Dict[str, Any]:
+        try:
+            return {"ok": True, "runs": design_library.list_runs(application_support())}
+        except Exception as exc:
+            return {"ok": False, "error": f"Could not read the design library: {exc}"}
+
+    def open_saved_design(self, run_id: str) -> Dict[str, Any]:
+        try:
+            with self._design_lock:
+                result, files = design_library.load(application_support(), run_id)
+                self._design_files = files
+                return result
+        except Exception as exc:
+            return {"ok": False, "error": f"Could not open the saved design: {exc}"}
 
     def download_design_file(self, download_id: str) -> Dict[str, Any]:
         item = self._design_files.get(download_id)
         if item is None:
-            return {"ok": False, "error": "This result is no longer available. Generate the design again."}
+            return {"ok": False, "error": "This run is not open. Reopen it from Saved designs, then download again."}
         suffix = Path(item["filename"]).suffix
         path = self._save_dialog(item["filename"], (f"Output files (*{suffix})", "All files (*.*)"))
         if not path:
@@ -780,6 +796,10 @@ class NativeAPI:
             "enzymes": list(TYPE_IIS_ENZYMES),
             "recent": self.recent_projects(),
         }
+        library = self.list_saved_designs()
+        info["savedDesigns"] = library.get("runs", [])
+        if not library["ok"]:
+            info["designLibraryError"] = library["error"]
         pending = local_updates.update_directory() / "pending-session.json"
         if pending.exists():
             try:

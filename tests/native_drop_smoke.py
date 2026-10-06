@@ -8,6 +8,7 @@ from pathlib import Path
 import sys
 import tempfile
 import time
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import webview
@@ -109,14 +110,30 @@ def main():
                     time.sleep(.1)
                 assert bundle.is_file()
                 assert 'Download PNG' in window.evaluate_js("document.getElementById('graphic-gallery').innerText")
-                print('PASS: temporary outputs → individual SnapGene download and order ZIP through real WebKit bridge', flush=True)
+                # Reopen through the library picker after clearing the active
+                # backend cache and displayed results, like a fresh session.
+                api._design_files = {}
+                window.evaluate_js('renderDesignResults(); refreshSavedDesigns()')
+                deadline = time.monotonic() + 10
+                while not window.evaluate_js('state.savedDesigns?.length || 0') and time.monotonic() < deadline:
+                    time.sleep(.1)
+                assert window.evaluate_js('state.savedDesigns.length') == 1
+                window.evaluate_js("document.getElementById('open-saved-design').click()")
+                deadline = time.monotonic() + 10
+                while not window.evaluate_js("document.querySelector('[data-plasmid]') !== null") and time.monotonic() < deadline:
+                    time.sleep(.1)
+                assert window.evaluate_js("document.querySelector('[data-plasmid]') !== null")
+                assert api._design_files
+                print('PASS: saved app library → reopened previews → individual SnapGene and order ZIP downloads', flush=True)
         except Exception as exc:
             errors.append(exc)
             print('FAIL:', repr(exc), flush=True)
         finally:
             window.destroy()
 
-    webview.start(check, private_mode=True)
+    with tempfile.TemporaryDirectory(prefix='cloning-library-smoke-') as library:
+        with patch('mac_app.main.application_support', lambda: Path(library)):
+            webview.start(check, private_mode=True)
     if errors:
         raise SystemExit(1)
 

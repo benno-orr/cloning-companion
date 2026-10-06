@@ -39,7 +39,7 @@ def test_design_drop_registration_reports_missing_target_and_is_idempotent():
     assert element.listeners[0][0] == "drop"
 
 
-def test_design_defaults_keep_downloads_in_memory_and_embed_all_graphics(tmp_path, monkeypatch):
+def test_design_library_persists_runs_without_export_folders(tmp_path, monkeypatch):
     monkeypatch.setattr("mac_app.main.application_support", lambda: tmp_path / "support")
     monkeypatch.setattr("tempfile.tempdir", str(tmp_path))
     source = tmp_path / "design.dna"
@@ -53,12 +53,15 @@ def test_design_defaults_keep_downloads_in_memory_and_embed_all_graphics(tmp_pat
     api = NativeAPI()
     first = api.run_annotated_golden_gate_design(str(source))
     old_id = first['plasmids'][0]['downloadId']
+    first_bytes = api._design_files[old_id]['data']
     # Even a legacy project with an output folder must not silently save.
     second = api.run_annotated_golden_gate_design(str(source), str(tmp_path / 'old-save-location'))
     assert first["ok"] and second["ok"], (first, second)
     assert 'outputDir' not in first and 'outputDir' not in second
-    assert set(tmp_path.iterdir()) == {source}
-    assert first['temporary'] and second['temporary']
+    assert set(tmp_path.iterdir()) == {source, tmp_path / 'support'}
+    assert not first['temporary'] and not second['temporary']
+    assert first['savedRun']['id'] != second['savedRun']['id']
+    assert len(api.list_saved_designs()['runs']) == 2
     assert not api.download_design_file(old_id)['ok']
     assert len(first["graphics"]) == 3  # linear map and two fragment-end views
     assert all(graphic["src"].startswith("data:image/") for graphic in first["graphics"])
@@ -69,7 +72,7 @@ def test_design_defaults_keep_downloads_in_memory_and_embed_all_graphics(tmp_pat
     monkeypatch.setattr(api, '_save_dialog', lambda *args: None)
     assert api.download_design_file(second['plasmids'][0]['downloadId'])['cancelled']
     assert api.download_design_bundle()['cancelled']
-    assert set(tmp_path.iterdir()) == {source}
+    assert set(tmp_path.iterdir()) == {source, tmp_path / 'support'}
     # A selected file is byte-identical; full and filtered archives work.
     saved = tmp_path / 'selected.dna'
     monkeypatch.setattr(api, '_save_dialog', lambda *args: str(saved))
@@ -101,6 +104,42 @@ def test_design_defaults_keep_downloads_in_memory_and_embed_all_graphics(tmp_pat
     assert window.script.startswith("window.nativeDesignDropped(")
     api._receive_dropped_design({"dataTransfer": {"files": [{"pywebviewFullPath": str(tmp_path / 'missing.dna')}]}})
     assert window.script.startswith("window.nativeDesignDropFailed(")
+    # Simulate relaunch, without the original input map or in-memory cache.
+    source.unlink()
+    restarted = NativeAPI()
+    assert len(restarted.list_saved_designs()['runs']) == 2
+    restored = restarted.open_saved_design(first['savedRun']['id'])
+    assert restored['ok'] and restored['graphics'] == first['graphics']
+    assert restored['plasmids'] == first['plasmids']
+    restored_id = restored['plasmids'][0]['downloadId']
+    monkeypatch.setattr(restarted, '_save_dialog', lambda *args: str(tmp_path / 'reopened.dna'))
+    assert restarted.download_design_file(restored_id)['ok']
+    assert (tmp_path / 'reopened.dna').read_bytes() == first_bytes
+    assert not restarted.open_saved_design("' OR 1=1 --")['ok']
+    assert restored_id in restarted._design_files  # Failed loads preserve active run.
+
+
+def test_design_library_reports_corruption_without_overwriting_it(tmp_path, monkeypatch):
+    monkeypatch.setattr('mac_app.main.application_support', lambda: tmp_path)
+    folder = tmp_path / 'DesignLibrary'
+    folder.mkdir()
+    database = folder / 'designs.sqlite3'
+    database.write_bytes(b'invalid database')
+    api = NativeAPI()
+    assert not api.list_saved_designs()['ok']
+    assert not api.open_saved_design('missing')['ok']
+    assert database.read_bytes() == b'invalid database'
+
+
+def test_design_library_failed_transaction_keeps_previous_runs(tmp_path):
+    import sqlite3
+    from mac_app import design_library
+    result = {'ok': True, 'project': 'saved', 'downloads': [], 'graphics': []}
+    run = design_library.save(tmp_path, result, {})
+    with pytest.raises(sqlite3.IntegrityError):
+        design_library.save(tmp_path, {**result, 'project': None}, {})
+    assert design_library.list_runs(tmp_path) == [run]
+    assert design_library.load(tmp_path, run['id'])[0]['project'] == 'saved'
 
 
 def test_failed_design_cleans_staging_and_preserves_existing_downloads(tmp_path, monkeypatch):
