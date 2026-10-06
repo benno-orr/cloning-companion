@@ -584,7 +584,48 @@ def _project_annotations(native_features: list[Element], sequence: str, mapping:
 
 
 def _project_core_annotations(row: dict[str, Any], scaffold: Scaffold, core_start: int, native_features: list[Element]) -> list[dict[str, Any]]:
-    return _project_annotations(native_features, scaffold.sequence, _native_row_mapping(row, scaffold, core_start))
+    return (_project_annotations(native_features, scaffold.sequence, _native_row_mapping(row, scaffold, core_start)) +
+            _replacement_core_annotations(row, scaffold, core_start, native_features))
+
+
+def _replacement_core_annotations(row, scaffold, target_start, native_features, target_length=None):
+    """Retain an explicitly annotated whole-core translation on replacement DNA.
+
+    This transfers the template's reading frame, not its protein identity or
+    internal domain boundaries. Arbitrary partial features and mutation labels
+    are not inferred on a replacement. Codons are calculated afresh from DNA.
+    """
+    core_name = row.get("native_core_feature")
+    if not row.get("variant_name") or not core_name:
+        return []
+    _, spans = scaffold.feature(core_name)
+    positions = [p for a, b in spans for p in range(a, b)]
+    window = row.get("variant_window") or {}
+    first = len(window.get("prefix", ""))
+    last = len(row["core_sequence"]) - len(window.get("suffix", ""))
+    dna = row["core_sequence"]
+    if dna[first:last].upper() == "".join(scaffold.sequence[p] for p in positions).upper():
+        return []
+    result = []
+    for feature in native_features:
+        coding = [s for s in feature.findall("Segment") if _coding_segment(feature, s)]
+        if not coding or [p for s in coding for p in _segment_positions(s, len(scaffold.sequence))] != positions:
+            continue
+        clone = copy.deepcopy(feature)
+        clone.set("name", row["variant_name"])
+        for attr in ("translationMW", "hitsStopCodon", "detectionMode", "maxRunOn", "maxFusedRunOn", "cleavageArrows"):
+            clone.attrib.pop(attr, None)
+        for child in list(clone):
+            # Only the reading frame/table remain valid across replacements.
+            if child.tag == "Segment" or (child.tag == "Q" and child.get("name") not in {"codon_start", "transl_table"}):
+                clone.remove(child)
+        SubElement(clone, "Segment", {"range": f"{first + 1}-{last}", "color": coding[0].get("color", "#aaccdd"),
+                                      "type": "standard", "translated": "1"})
+        q = SubElement(clone, "Q", {"name": "note"})
+        SubElement(q, "V", {"text": f"Translation recalculated from selected variant DNA; reading frame and color inherited from {feature.get('name')}. Internal template domains are not transferred."})
+        mapping = {p: (target_start + p) % target_length if target_length else target_start + p for p in range(len(dna))}
+        result.extend(_project_annotations([clone], dna, mapping, require_complete=True))
+    return result
 
 
 def _fragment_core_bounds(row: dict[str, Any], retained_length: int) -> tuple[int, int]:
@@ -1128,14 +1169,15 @@ def _write_plasmid_junction_figure(path, rows, starts, retained, sequence, junct
     rotation = (starts[backbone] + (len(retained[backbone]) - 4) // 2) % length
     items = sorted(zip(junction_rows, joined_views), key=lambda pair: (junction_locations[str(pair[0]["junction_id"])][0] - rotation) % length)
     images = [Image.open(filename).convert("RGB") for _, filename in items]
-    panel_width = max(image.width for image in images)
-    panel_height = max(image.height for image in images)
     slots = (len(items) + 1) // 2
+    column_widths = [max(image.width for image in images[i:i + 2]) for i in range(0, len(images), 2)]
+    top_height = max(image.height for image in images[::2])
+    bottom_height = max((image.height for image in images[1::2]), default=0)
     margin, gutter = 80, 90
-    width = margin * 2 + slots * panel_width + (slots - 1) * gutter
-    map_y = 120 + panel_height + 210
-    bottom_y = map_y + 210
-    height = bottom_y + panel_height + 140
+    width = margin * 2 + sum(column_widths) + (slots - 1) * gutter
+    map_y = 120 + top_height + 140
+    bottom_y = map_y + 160
+    height = bottom_y + bottom_height + 140
     figure = Image.new("RGB", (width, height), "white")
     draw = ImageDraw.Draw(figure)
     colors = _fragment_palette(rows)
@@ -1148,21 +1190,29 @@ def _write_plasmid_junction_figure(path, rows, starts, retained, sequence, junct
     # Draw expansion wedges behind the map and the white detail panels.
     for rank, ((junction, filename), image) in enumerate(zip(items, images)):
         column = rank // 2
-        panel_x = margin + column * (panel_width + gutter)
+        panel_x = margin + sum(column_widths[:column]) + column * gutter + (column_widths[column] - image.width) // 2
         top = rank % 2 == 0
-        panel_y = 125 if top else bottom_y
+        panel_y = 120 + top_height - image.height if top else bottom_y
         position, left_index, right_index = junction_locations[str(junction["junction_id"])]
         position = (position - rotation) % length
-        a, b = x(max(0, position - 22)), x(min(length, position + 26))
-        edge = panel_y + panel_height + 36 if top else panel_y - 16
+        # Anchor the wedge to the actual twelve-core-base display window,
+        # including the complete inter-core linker and any shared fusion.
+        left_start, left_end = _fragment_core_bounds(rows[left_index], len(retained[left_index]))
+        right_start, right_end = _fragment_core_bounds(rows[right_index], len(retained[right_index]))
+        left_origin = position - (len(retained[left_index]) - 4)
+        first = min(left_origin + max(left_start, left_end - 12), position)
+        last = max(position + min(right_end, right_start + 12), position + 4)
+        a, b = x(max(0, first)), x(min(length, last))
+        edge = panel_y + image.height if top else panel_y
         near = map_y - 27 if top else map_y + 27
-        points = [(panel_x + 20, edge), (panel_x + panel_width - 20, edge), (b, near), (a, near)]
+        # Junction PNGs use a 42 px margin at 2x resolution. Follow their
+        # DNA edges, not the widest image's unused panel allocation.
+        panel_left, panel_right = panel_x + 84, panel_x + image.width - 84
+        points = [(panel_left, edge), (panel_right, edge), (b, near), (a, near)]
         draw.polygon(points, fill="#f4f6f8")
-        draw.line((panel_x + 20, edge, a, near), fill="#cad2d8", width=2)
-        draw.line((panel_x + panel_width - 20, edge, b, near), fill="#cad2d8", width=2)
-        title = f"{rank + 1}  {junction['selected_fusion']} · {rows[left_index]['element_name']} → {rows[right_index]['element_name']}"
-        draw.text((panel_x + 18, panel_y), title, font=font, fill="#253c30")
-        figure.paste(image, (panel_x, panel_y + 37))
+        draw.line((panel_left, edge, a, near), fill="#cad2d8", width=2)
+        draw.line((panel_right, edge, b, near), fill="#cad2d8", width=2)
+        figure.paste(image, (panel_x, panel_y))
     for index, row in enumerate(rows):
         # Display each shared fusion with its downstream physical fragment;
         # the underlying assembled sequence and native annotations are intact.
@@ -1526,6 +1576,9 @@ def _product_map_features(rows, starts, retained, sequence, scaffold):
                 mapped[0]["xml"].set("name", features[2 * i]["name"])
                 features[2 * i] = mapped[0]
     features.extend(_project_annotations(native_features, scaffold.sequence, mapping, require_complete=True))
+    for i, row in enumerate(rows):
+        extension = len(row["left_fusion"]) if row["left_fusion_owner"] == "extension" else 0
+        features.extend(_replacement_core_annotations(row, scaffold, starts[i] - 4 + extension, native_features, length))
     source = _source_strand_colors(scaffold.path, len(scaffold.sequence))
     colors = Element("StrandColors")
     backbone = next((i for i, row in enumerate(rows) if row.get("is_backbone")), 0)

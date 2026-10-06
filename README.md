@@ -42,7 +42,7 @@ Outputs:
 
 ```text
 dist/CloningCompanion.app
-dist/CloningCompanion-1.5.0.dmg
+dist/CloningCompanion-1.5.1.dmg
 ```
 
 When `SIGN_IDENTITY` is omitted, the build script uses an ad-hoc signature suitable for local testing. For public distribution, use a Developer ID Application certificate:
@@ -86,6 +86,12 @@ Create a draft, upload both assets, then publish it. Do not overwrite published 
 The private signing key stays outside the repository in Application Support/CloningCompanion/Signing;
 back it up securely. Only the public key in `mac_app/update_identity.py` belongs in source control.
 Do not rotate that key without a planned trust-key transition for existing installations.
+
+Version 1.5.1 restores translation tracks for pasted replacement variants when the input
+explicitly annotates the entire core as coding. Translations are recalculated from the
+selected DNA using the template reading frame and color, and labelled with the variant
+name. Internal template domains and mutation labels are not inferred on replacements.
+Linear-map callouts have individually fitted connectors and no redundant junction headings.
 
 Store notarization credentials once using Apple's interactive prompt, then submit and staple the DMG:
 

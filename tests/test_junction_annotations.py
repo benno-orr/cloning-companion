@@ -1,5 +1,6 @@
 from xml.etree.ElementTree import Element, SubElement
 from pathlib import Path
+import pytest
 
 from Bio import SeqIO
 
@@ -90,6 +91,73 @@ def test_origin_spanning_orf_and_translation_table():
     q = SubElement(f, 'Q', {'name': 'transl_table'})
     SubElement(q, 'V', {'int': '2'})
     assert _feature_codons(f, 'TGA')[0]['aa'] == 'W'
+
+
+@pytest.mark.parametrize('reverse,phase,replacement,expected', [
+    (False, 1, 'ATGAGCGCC', 'MSA'),
+    (True, 1, 'TTAGGCCAT', 'MA*'),
+    (False, 2, 'AATGAGCGCC', 'MSA'),
+])
+def test_variant_translation_uses_new_dna_frame_name_and_native_color(tmp_path, reverse, phase, replacement, expected):
+    source = tmp_path / 'source.dna'
+    sequence = 'CACC' + 'A' * 20 + 'TGAA' + 'ATGGCC' + 'GGATCTGGATCTGGA' + 'GCGGCG'
+    protein = feature(name='Original protein', spans=('29-31', '32-34'), reverse=reverse, phase=phase, kind='CDS')
+    SubElement(SubElement(protein, 'Q', {'name': 'translation'}), 'V', {'text': 'STALE'})
+    _write_snapgene_map(source, sequence, [
+        {'name': '[Backbone]', 'start': 0, 'end': 28},
+        {'name': 'ori pUC', 'start': 4, 'end': 20},
+        {'name': '{Insert}', 'start': 28, 'end': 34},
+        {'name': '{Tail}', 'start': 49, 'end': 55},
+        {'xml': protein},
+        {'xml': feature(name='Tail protein', spans=('50-55',), kind='CDS')},
+        {'name': 'Old mutation', 'start': 30, 'end': 31},
+        {'name': '-', 'start': 24, 'end': 28},
+        {'name': '-', 'start': 34, 'end': 49},
+        {'name': '-', 'start': 0, 'end': 4},
+    ], 'Synthetic replacement test')
+    result = run_annotated_snapgene_design(source, tmp_path / 'out', variable_texts={
+        'fragment_2': f'new_insert,{replacement}', 'fragment_3': 'new_tail,GCTGCTGCT'})
+    for path in (result['assembledMap'], result['schematicMap']):
+        annotations = _snapgene_features_xml(Path(path))
+        dna = str(SeqIO.read(path, 'snapgene').seq)
+        for name, amino in [('new_insert', expected), ('new_tail', 'AAA')]:
+            f = next(f for f in annotations if f.get('name') == name)
+            assert ''.join(c['aa'] for c in _feature_codons(f, dna)) == amino
+            assert f.find('Segment').get('color') == '#aaccdd'
+            assert len(f.findall('Segment')) == 1  # No invented domain boundaries.
+            assert 'recalculated' in _qualifier(f, 'note')
+        assert not any(f.get('name') in {'Original protein', 'Old mutation', 'Tail protein'} for f in annotations)
+        insert = next(f for f in annotations if f.get('name') == 'new_insert')
+        assert len(_feature_codons(insert, dna)) == 3
+
+
+def test_linear_map_wedges_follow_individual_images_and_have_no_callout_headings(tmp_path, monkeypatch):
+    from PIL import Image, ImageDraw
+    from plasmid_verify.golden_gate_design import _write_plasmid_junction_figure
+    images = []
+    for i, size in enumerate([(600, 300), (900, 440)]):
+        path = tmp_path / f'{i}.png'
+        Image.new('RGB', size, 'white').save(path)
+        images.append(path)
+    rows = [dict(element_name=name, is_backbone=i == 0, left_fusion='CACC', right_fusion='TGAA',
+                 left_fusion_owner='core', right_fusion_owner='core', variant_window={})
+            for i, name in enumerate(['backbone', 'insert'])]
+    texts, polygons = [], []
+    original_text, original_polygon = ImageDraw.ImageDraw.text, ImageDraw.ImageDraw.polygon
+    def text(self, xy, value, *args, **kwargs):
+        texts.append(value)
+        return original_text(self, xy, value, *args, **kwargs)
+    def polygon(self, points, *args, **kwargs):
+        polygons.append(points)
+        return original_polygon(self, points, *args, **kwargs)
+    monkeypatch.setattr(ImageDraw.ImageDraw, 'text', text)
+    monkeypatch.setattr(ImageDraw.ImageDraw, 'polygon', polygon)
+    _write_plasmid_junction_figure(tmp_path / 'map.png', rows, [0, 100], ['A' * 104] * 2, 'A' * 200,
+        [{'junction_id': 'a', 'selected_fusion': 'CACC'}, {'junction_id': 'b', 'selected_fusion': 'TGAA'}],
+        {'a': (96, 0, 1), 'b': (196, 1, 0)}, images)
+    assert [p[1][0] - p[0][0] for p in polygons] == [600 - 168, 900 - 168]
+    assert not any('→' in t or 'CACC' in t or 'TGAA' in t for t in texts)
+    assert {'1', '2'} <= set(texts)  # Central map badges remain.
 
 
 def test_annotations_are_exported_to_assembled_map_and_orf_images(tmp_path, monkeypatch):
