@@ -1,4 +1,7 @@
 import struct
+import json
+import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -36,8 +39,9 @@ def test_design_drop_registration_reports_missing_target_and_is_idempotent():
     assert element.listeners[0][0] == "drop"
 
 
-def test_design_defaults_save_each_run_and_embed_all_graphics(tmp_path, monkeypatch):
+def test_design_defaults_keep_downloads_in_memory_and_embed_all_graphics(tmp_path, monkeypatch):
     monkeypatch.setattr("mac_app.main.application_support", lambda: tmp_path / "support")
+    monkeypatch.setattr("tempfile.tempdir", str(tmp_path))
     source = tmp_path / "design.dna"
     _write_snapgene_map(source, "CACC" + "A" * 20 + "TGAAATGGCC", [
         {"name": "[Backbone]", "start": 0, "end": 28},
@@ -48,12 +52,45 @@ def test_design_defaults_save_each_run_and_embed_all_graphics(tmp_path, monkeypa
     ], "Test design")
     api = NativeAPI()
     first = api.run_annotated_golden_gate_design(str(source))
-    second = api.run_annotated_golden_gate_design(str(source), "")
+    old_id = first['plasmids'][0]['downloadId']
+    # Even a legacy project with an output folder must not silently save.
+    second = api.run_annotated_golden_gate_design(str(source), str(tmp_path / 'old-save-location'))
     assert first["ok"] and second["ok"], (first, second)
-    assert first["outputDir"] != second["outputDir"]
+    assert 'outputDir' not in first and 'outputDir' not in second
+    assert set(tmp_path.iterdir()) == {source}
+    assert first['temporary'] and second['temporary']
+    assert not api.download_design_file(old_id)['ok']
     assert len(first["graphics"]) == 3  # linear map and two fragment-end views
     assert all(graphic["src"].startswith("data:image/") for graphic in first["graphics"])
     assert {graphic["group"] for graphic in first["graphics"]} == {"Linear map", "Fragment ends"}
+    assert all(g['downloadId'] in api._design_files for g in second['graphics'])
+    assert {'synthesis_order.tsv', 'synthesis_order.fasta', 'pcr_primers.tsv', 'assembly_schematic.dna'} <= {d['filename'] for d in second['downloads']}
+    # Cancelling a download creates nothing and keeps it available.
+    monkeypatch.setattr(api, '_save_dialog', lambda *args: None)
+    assert api.download_design_file(second['plasmids'][0]['downloadId'])['cancelled']
+    assert api.download_design_bundle()['cancelled']
+    assert set(tmp_path.iterdir()) == {source}
+    # A selected file is byte-identical; full and filtered archives work.
+    saved = tmp_path / 'selected.dna'
+    monkeypatch.setattr(api, '_save_dialog', lambda *args: str(saved))
+    key = second['plasmids'][0]['downloadId']
+    assert api.download_design_file(key)['ok']
+    assert saved.read_bytes() == api._design_files[key]['data']
+    for group in ('all', 'plasmids', 'orders', 'graphics'):
+        bundle = tmp_path / f'{group}.zip'
+        monkeypatch.setattr(api, '_save_dialog', lambda *args: str(bundle))
+        assert api.download_design_bundle(group)['ok']
+        with zipfile.ZipFile(bundle) as archive:
+            expected = [f for f in api._design_files.values() if group == 'all' or f['group'] == group]
+            assert set(archive.namelist()) == {f['relativePath'] for f in expected}
+            for f in expected:
+                assert archive.read(f['relativePath']) == f['data']
+            if group == 'all':
+                report = json.loads(archive.read('design.json'))
+                assert not Path(report['assembledMap']).is_absolute()
+                assert report['assembledMap'] in archive.namelist()
+    assert not api.download_design_file('/etc/passwd')['ok']
+    assert not api.download_design_bundle('../other')['ok']
     assert api.annotated_design_map_from_path(str(source))["fragmentCount"] == 2
     class Window:
         def evaluate_js(self, script):
@@ -64,6 +101,19 @@ def test_design_defaults_save_each_run_and_embed_all_graphics(tmp_path, monkeypa
     assert window.script.startswith("window.nativeDesignDropped(")
     api._receive_dropped_design({"dataTransfer": {"files": [{"pywebviewFullPath": str(tmp_path / 'missing.dna')}]}})
     assert window.script.startswith("window.nativeDesignDropFailed(")
+
+
+def test_failed_design_cleans_staging_and_preserves_existing_downloads(tmp_path, monkeypatch):
+    monkeypatch.setattr('tempfile.tempdir', str(tmp_path))
+    api = NativeAPI()
+    api._design_files = {'existing': {'data': b'previous result'}}
+    def fail(root):
+        (root / 'partial.txt').write_text('partial render')
+        raise ValueError('renderer failed')
+    with pytest.raises(ValueError, match='renderer failed'):
+        api._temporary_design(fail)
+    assert list(tmp_path.iterdir()) == []
+    assert api._design_files['existing']['data'] == b'previous result'
 
 
 def _packet(packet_type: int, payload: bytes) -> bytes:

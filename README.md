@@ -42,7 +42,7 @@ Outputs:
 
 ```text
 dist/CloningCompanion.app
-dist/CloningCompanion-1.5.1.dmg
+dist/CloningCompanion-1.6.0.dmg
 ```
 
 When `SIGN_IDENTITY` is omitted, the build script uses an ad-hoc signature suitable for local testing. For public distribution, use a Developer ID Application certificate:
@@ -61,7 +61,8 @@ waits for the running app to exit, replaces it, and reopens it. A `CloningCompan
 beside the installed app, or under Application Support/CloningCompanion/Updates when the app’s parent folder is protected.
 For a writable app in a protected parent folder, the updater swaps its Contents on the same filesystem.
 If replacement or launching fails, the old bundle is restored.
-Inputs restore automatically; existing design outputs remain on disk and verification results can be rerun.
+Inputs restore automatically. Download design outputs before restarting: unsaved temporary results are cleared.
+Previously downloaded files remain unchanged; design and verification results can be rerun.
 Recovery files and helper logs are under `~/Library/Application Support/CloningCompanion/Updates/install-*`.
 Pre-1.3.0 installations need a one-time app replacement to acquire the updater; subsequent updates need no DMG.
 Read-only/translocated apps must first be moved to Applications.
@@ -144,11 +145,11 @@ Each junction also has a high-resolution `junction_screencaps/*_clean.png` figur
 
 The **Joined junctions** gallery shows complementary ends aligned across a stepped cut line. `junction_screencaps/*_joined.png` and `junction_joined_overview.png` show each four-base fusion once, with both strands colored by native core membership, including fusions that cross a core boundary. Copies appended to a neighboring fragment retain their source core's color. Connecting DNA outside labelled cores is assigned to the downstream core for coloring. The same provenance is retained for pasted variants of different lengths. Noncoding bases are lowercase when native translated-feature annotations are available.
 
-Drop an annotated `.dna` file onto the design-map input or click to choose one, then run. The output folder is optional: automatic runs are saved separately under `~/Library/Application Support/CloningCompanion/Designs`. The result gallery displays all clean, enzyme, and assembled junction graphics plus whole-sequence overviews of both SnapGene maps. Click an image to enlarge it or view it at actual size. **Show saved files** reveals the output folder; choosing a custom save location remains available.
+Drop an annotated `.dna` file onto the design-map input or click to choose one, then run. Starting in 1.6.0, desktop results are temporary by default: no persistent output folder is created, including when opening an older project that specified one. File-based renderers use a temporary staging directory that is removed on completion or failure; the latest successful run's downloadable files are held in memory until replaced or the app exits. Existing saved designs are not deleted. Use **Download outputs** to save individual SnapGene plasmids, synthesis TSV/FASTA, PCR primers, schematics and reports, or ZIP bundles of all outputs, plasmids, order files, or graphics. Each download opens a native save dialog. Cancelling creates no file. Save Project saves inputs, not generated results. The CLI retains its explicit output-directory behavior.
 
 For each `{variable core}`, paste a list of named core DNA sequences in its variant box: two tab-separated columns, CSV (optional `name` and `dna_sequence` headers), or FASTA. The app adds the selected shared fusions and enzyme adapters to every version. Fixed pieces are output once. `synthesis_order.tsv` and `synthesis_order.fasta` contain one synthesis fragment per version; PCR variants get individual primer pairs in `pcr_primers.tsv`. Choose one option per assembly position in `assembly_recipe.tsv`. The SnapGene assembled map and junction PNGs represent the first option from each list, not all combinations. Save Project preserves the pasted lists. Empty lists use the core from the original map, which must contain unambiguous DNA. These checks do not predict experimental ligation fidelity or substitute for vendor/manufacturability review.
 
-The default **Plasmid & junctions** view displays a to-scale linearized plasmid with alternating upper/lower junction blowups, saved as `plasmid_with_junction_blowups.png`. **Joined junctions** retains the separate detail images.
+The **Linear map** view displays a to-scale linearized plasmid with alternating upper/lower junction blowups, downloadable as `plasmid_with_junction_blowups.png`. **Fragment ends** shows the separate pre-digestion ends. Click an image to enlarge it or view it at actual size; each has a PNG download button.
 
 Regions labelled `-` are fixed scaffold-derived sequence, never user-supplied library elements. Paste variable cores without any `-` bases, including marked portions overlapping a core label. The designer restores these bases automatically and distributes them between the two flanking fragments around the chosen four-base overlap. `automatic_junction_bases.tsv` and the in-app report show the full region and each fragment-end contribution. The assembled region contains every native base once. Older pasted lists containing overlapping `-` bases must have those marked bases removed before reuse.
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import base64
 import html
+import io
 import json
 import platform
 import subprocess
@@ -11,6 +12,7 @@ import traceback
 import tempfile
 import threading
 import zipfile
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
@@ -36,7 +38,7 @@ from mac_app import local_updates, github_updates
 
 
 APP_NAME = "CloningCompanion"
-APP_VERSION = "1.5.1"
+APP_VERSION = "1.6.0"
 PROJECT_EXTENSION = "plasmidverify"
 SEQUENCE_TYPES = ("Sequence files (*.fasta;*.fa;*.fna;*.fas;*.dna)", "All files (*.*)")
 INSERT_TYPES = (
@@ -56,14 +58,6 @@ def application_support() -> Path:
     directory = Path.home() / "Library" / "Application Support" / APP_NAME
     directory.mkdir(parents=True, exist_ok=True)
     return directory
-
-
-def _design_output_root(folder: Optional[str]) -> Path:
-    if folder:
-        return Path(folder).expanduser()
-    root = application_support() / "Designs"
-    root.mkdir(parents=True, exist_ok=True)
-    return Path(tempfile.mkdtemp(prefix=datetime.now().strftime("%Y-%m-%d_%H-%M-%S_"), dir=root))
 
 
 def _map_overview(path: Path, title: str) -> str:
@@ -97,7 +91,6 @@ def _map_overview(path: Path, title: str) -> str:
 def _design_previews(result: Dict[str, Any]) -> Dict[str, Any]:
     """Embed local graphics so the native WebKit view needs no file permissions."""
     graphics = []
-    output = Path(result["outputDir"])
     def add(path, title, group, mime="image/png", source_path=None):
         path = Path(path)
         graphics.append({"title": title, "group": group, "path": str(path), "sourcePath": str(source_path or path),
@@ -292,6 +285,8 @@ class NativeAPI:
         self.current_project: Optional[str] = None
         self._update_lock = threading.Lock()
         self._github_update = None
+        self._design_files: Dict[str, Dict[str, Any]] = {}
+        self._design_lock = threading.Lock()
 
     def bind(self, window: webview.Window) -> None:
         self.window = window
@@ -466,19 +461,11 @@ class NativeAPI:
             if self.window:
                 self.window.evaluate_js(f"window.nativeDesignDropFailed({json.dumps(str(exc))})")
 
-    def choose_design_output_folder(self) -> Optional[str]:
-        if not self.window:
-            return None
-        result = self.window.create_file_dialog(webview.FOLDER_DIALOG, directory="")
-        if not result:
-            return None
-        return str(result[0] if isinstance(result, (list, tuple)) else result)
-
     def run_golden_gate_design(self, plan_path: str, output_folder: Optional[str] = None) -> Dict[str, Any]:
         try:
             if not plan_path:
                 raise ValueError("Choose a design plan first")
-            return _design_previews(run_plan(plan_path, _design_output_root(output_folder)))
+            return self._temporary_design(lambda root: run_plan(plan_path, root))
         except Exception as exc:
             return {"ok": False, "error": str(exc), "detail": traceback.format_exc(limit=5)}
 
@@ -486,9 +473,87 @@ class NativeAPI:
         try:
             if not map_path:
                 raise ValueError("Choose an annotated SnapGene map first")
-            return _design_previews(run_annotated_snapgene_design(map_path, _design_output_root(output_folder), enzyme, variable_texts))
+            # Older saved projects may include output_folder. Desktop results
+            # now always require an explicit download, regardless of that value.
+            return self._temporary_design(lambda root: run_annotated_snapgene_design(map_path, root, enzyme, variable_texts))
         except Exception as exc:
             return {"ok": False, "error": str(exc), "detail": traceback.format_exc(limit=5)}
+
+    def _temporary_design(self, generate) -> Dict[str, Any]:
+        """Stage file-based renderers temporarily, then retain only bytes in RAM."""
+        with self._design_lock:
+            with tempfile.TemporaryDirectory(prefix="cloning-companion-design-") as workspace:
+                result = _design_previews(generate(Path(workspace)))
+                output = Path(result["outputDir"])
+                def relative(value):
+                    if isinstance(value, dict):
+                        return {k: relative(v) for k, v in value.items()}
+                    if isinstance(value, list):
+                        return [relative(v) for v in value]
+                    if isinstance(value, str) and value.startswith(str(output) + "/"):
+                        return str(Path(value).relative_to(output))
+                    return value
+                files, by_path, downloads = {}, {}, []
+                for path in sorted(output.rglob("*")):
+                    if not path.is_file():
+                        continue
+                    name = str(path.relative_to(output))
+                    key = uuid.uuid4().hex
+                    data = path.read_bytes()
+                    if path.name == "design.json":
+                        report = relative(json.loads(data))
+                        report.pop("outputDir", None)
+                        data = json.dumps(report, indent=2).encode("utf-8")
+                    group = ("plasmids" if name.startswith("plasmids/") else
+                             "orders" if path.name in {"synthesis_order.tsv", "synthesis_order.fasta", "pcr_primers.tsv", "assembly_recipe.tsv"} else
+                             "graphics" if path.suffix.lower() in {".png", ".svg"} else "other")
+                    info = {"id": key, "filename": path.name, "relativePath": name, "group": group, "bytes": len(data)}
+                    files[key] = {**info, "data": data}
+                    downloads.append(info)
+                    by_path[str(path)] = key
+                for plasmid in result.get("plasmids", []):
+                    plasmid["downloadId"] = by_path[plasmid["path"]]
+                for graphic in result.get("graphics", []):
+                    graphic["downloadId"] = by_path[graphic["sourcePath"]]
+                result = relative(result)
+                result.pop("outputDir", None)
+                result.update(downloads=downloads, temporary=True)
+            # Replace only after a successful run and after staging is removed.
+            self._design_files = files
+            return result
+
+    def download_design_file(self, download_id: str) -> Dict[str, Any]:
+        item = self._design_files.get(download_id)
+        if item is None:
+            return {"ok": False, "error": "This result is no longer available. Generate the design again."}
+        suffix = Path(item["filename"]).suffix
+        path = self._save_dialog(item["filename"], (f"Output files (*{suffix})", "All files (*.*)"))
+        if not path:
+            return {"ok": False, "cancelled": True}
+        try:
+            Path(path).write_bytes(item["data"])
+            return {"ok": True, "path": path}
+        except OSError as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def download_design_bundle(self, group: str = "all") -> Dict[str, Any]:
+        if group not in {"all", "plasmids", "orders", "graphics"}:
+            return {"ok": False, "error": "Unknown output group"}
+        items = [item for item in self._design_files.values() if group == "all" or item["group"] == group]
+        if not items:
+            return {"ok": False, "error": "Generate a design before downloading outputs."}
+        path = self._save_dialog(f"cloning-design-{group}.zip", ("ZIP archives (*.zip)",))
+        if not path:
+            return {"ok": False, "cancelled": True}
+        try:
+            buffer = io.BytesIO()
+            with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+                for item in items:
+                    archive.writestr(item["relativePath"], item["data"])
+            Path(path).write_bytes(buffer.getvalue())
+            return {"ok": True, "path": path}
+        except OSError as exc:
+            return {"ok": False, "error": str(exc)}
 
     def _file_info(self, path: str, order: Optional[int] = None) -> Dict[str, Any]:
         name, sequence = _first_sequence(path)

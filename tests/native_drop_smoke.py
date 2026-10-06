@@ -89,7 +89,27 @@ def main():
                 window.evaluate_js('renderDesignResults(%s)' % json.dumps(designed))
                 assert window.evaluate_js("document.querySelectorAll('[data-plasmid]').length") == 1
                 assert 'Assembled plasmids' in window.evaluate_js("document.getElementById('design-results').innerText")
-                print('PASS: unique SnapGene outputs appear in app with per-file actions', flush=True)
+                assert not (Path(directory) / 'outputs').exists()
+                assert window.evaluate_js("document.getElementById('design-results').firstElementChild.id") == 'design-downloads'
+                assert window.evaluate_js("document.querySelectorAll('[data-download-bundle]').length") == 4
+                # Exercise the real WebKit→Python download action, with only
+                # the native save dialog stubbed to a test destination.
+                saved = Path(directory) / 'download.dna'
+                api._save_dialog = lambda *args: str(saved)
+                window.evaluate_js("document.querySelector('[data-plasmid]').click()")
+                deadline = time.monotonic() + 10
+                while not saved.exists() and time.monotonic() < deadline:
+                    time.sleep(.1)
+                assert saved.read_bytes() == api._design_files[designed['plasmids'][0]['downloadId']]['data']
+                bundle = Path(directory) / 'download.zip'
+                api._save_dialog = lambda *args: str(bundle)
+                window.evaluate_js("document.querySelector('[data-download-bundle=orders]').click()")
+                deadline = time.monotonic() + 10
+                while not bundle.exists() and time.monotonic() < deadline:
+                    time.sleep(.1)
+                assert bundle.is_file()
+                assert 'Download PNG' in window.evaluate_js("document.getElementById('graphic-gallery').innerText")
+                print('PASS: temporary outputs → individual SnapGene download and order ZIP through real WebKit bridge', flush=True)
         except Exception as exc:
             errors.append(exc)
             print('FAIL:', repr(exc), flush=True)
