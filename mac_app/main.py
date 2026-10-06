@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import copy
 import base64
 import html
 import io
@@ -38,7 +39,7 @@ from mac_app import local_updates, github_updates, design_library
 
 
 APP_NAME = "CloningCompanion"
-APP_VERSION = "1.7.0"
+APP_VERSION = "1.8.0"
 PROJECT_EXTENSION = "plasmidverify"
 SEQUENCE_TYPES = ("Sequence files (*.fasta;*.fa;*.fna;*.fas;*.dna)", "All files (*.*)")
 INSERT_TYPES = (
@@ -47,6 +48,12 @@ INSERT_TYPES = (
 )
 PROJECT_TYPES = ("CloningCompanion projects (*.plasmidverify)",)
 DESIGN_MAP_TYPES = ("Annotated SnapGene maps (*.dna)", "All files (*.*)")
+
+
+def _same_design_inputs(first: Dict[str, Any], second: Dict[str, Any]) -> bool:
+    a, b = first.get("goldenGateDesign") or {}, second.get("goldenGateDesign") or {}
+    return (a.get("enzyme") == b.get("enzyme") and a.get("variableTexts", {}) == b.get("variableTexts", {}) and
+            (a.get("map") or {}).get("embeddedSnapGene") == (b.get("map") or {}).get("embeddedSnapGene"))
 
 
 def resource_path(relative: str) -> Path:
@@ -469,13 +476,31 @@ class NativeAPI:
         except Exception as exc:
             return {"ok": False, "error": str(exc), "detail": traceback.format_exc(limit=5)}
 
-    def run_annotated_golden_gate_design(self, map_path: str, output_folder: Optional[str] = None, enzyme: str = "BsmBI", variable_texts: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    def run_annotated_golden_gate_design(self, map_path: str, output_folder: Optional[str] = None, enzyme: str = "BsmBI", variable_texts: Optional[Dict[str, str]] = None, project_state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         try:
             if not map_path:
                 raise ValueError("Choose an annotated SnapGene map first")
             # Legacy output folders are ignored: save inside the app library;
             # exporting ordinary files still requires an explicit download.
-            return self._temporary_design(lambda root: run_annotated_snapgene_design(map_path, root, enzyme, variable_texts))
+            state = copy.deepcopy(project_state or {})
+            original = (state.get("goldenGateDesign") or {}).get("map") or {}
+            encoded = original.get("embeddedSnapGene") if original.get("path") == map_path else None
+            data = base64.b64decode(encoded, validate=True) if encoded else Path(map_path).read_bytes()
+            # Generate from the exact embedded input snapshot, not a mutable
+            # external file. Reopened projects can be rerun without the source.
+            with tempfile.TemporaryDirectory(prefix="cloning-project-input-") as folder:
+                source = Path(folder) / Path(map_path).name
+                source.write_bytes(data)
+                info = self.annotated_design_map_from_path(str(source))
+                info.update(path=map_path, embeddedSnapGene=base64.b64encode(data).decode("ascii"))
+                state["goldenGateDesign"] = {"map": info, "enzyme": enzyme, "variableTexts": variable_texts or {}}
+                state["projectName"] = state.get("projectName") or Path(map_path).stem
+                state["projectId"] = state.get("projectId") or uuid.uuid4().hex
+                def generate(root):
+                    result = run_annotated_snapgene_design(source, root, enzyme, variable_texts)
+                    result.update(projectState=state, project=state["projectName"])
+                    return result
+                return self._temporary_design(generate)
         except Exception as exc:
             return {"ok": False, "error": str(exc), "detail": traceback.format_exc(limit=5)}
 
@@ -503,6 +528,9 @@ class NativeAPI:
                     if path.name == "design.json":
                         report = relative(json.loads(data))
                         report.pop("outputDir", None)
+                        if result.get("projectState"):
+                            original_path = result["projectState"]["goldenGateDesign"]["map"]["path"]
+                            report.update(scaffold=original_path, plan=original_path)
                         data = json.dumps(report, indent=2).encode("utf-8")
                     group = ("plasmids" if name.startswith("plasmids/") else
                              "orders" if path.name in {"synthesis_order.tsv", "synthesis_order.fasta", "pcr_primers.tsv", "assembly_recipe.tsv"} else
@@ -534,6 +562,8 @@ class NativeAPI:
             with self._design_lock:
                 result, files = design_library.load(application_support(), run_id)
                 self._design_files = files
+                if result.get("projectState"):
+                    self.current_project = None
                 return result
         except Exception as exc:
             return {"ok": False, "error": f"Could not open the saved design: {exc}"}
@@ -541,7 +571,7 @@ class NativeAPI:
     def download_design_file(self, download_id: str) -> Dict[str, Any]:
         item = self._design_files.get(download_id)
         if item is None:
-            return {"ok": False, "error": "This run is not open. Reopen it from Saved designs, then download again."}
+            return {"ok": False, "error": "This project is not open. Reopen it from Saved projects, then download again."}
         suffix = Path(item["filename"]).suffix
         path = self._save_dialog(item["filename"], (f"Output files (*{suffix})", "All files (*.*)"))
         if not path:
@@ -661,27 +691,55 @@ class NativeAPI:
             return {"ok": False, "error": str(exc), "detail": traceback.format_exc(limit=5)}
 
     def save_project(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        path = self.current_project
+        return self._save_project(payload, False)
+
+    def start_new_project(self) -> bool:
+        self.current_project = None
+        self._design_files = {}
+        self.latest_results = {}
+        return True
+
+    def _save_project(self, payload: Dict[str, Any], as_new: bool) -> Dict[str, Any]:
+        path = None if as_new else self.current_project
         if not path:
-            path = self._save_dialog(f"Untitled.{PROJECT_EXTENSION}", PROJECT_TYPES)
+            path = self._save_dialog(f"{_safe_filename(payload.get('projectName') or 'Untitled')}.{PROJECT_EXTENSION}", PROJECT_TYPES)
         if not path:
             return {"ok": False, "cancelled": True}
         if not path.endswith(f".{PROJECT_EXTENSION}"):
             path += f".{PROJECT_EXTENSION}"
-        document = {
-            "format": "CloningCompanion Project",
-            "version": 1,
-            "savedAt": datetime.now(timezone.utc).isoformat(),
-            "state": payload,
-        }
-        Path(path).write_text(json.dumps(document, indent=2), encoding="utf-8")
+        try:
+            state = copy.deepcopy(payload)
+            design = state.get("goldenGateDesign") or {}
+            source = design.get("map") or {}
+            if source.get("path") and not source.get("embeddedSnapGene"):
+                source["embeddedSnapGene"] = base64.b64encode(Path(source["path"]).read_bytes()).decode("ascii")
+            document = {"format": "CloningCompanion Project", "version": 2,
+                        "savedAt": datetime.now(timezone.utc).isoformat(), "state": state}
+            if design.get("savedRunId"):
+                result, files = design_library.load(application_support(), design["savedRunId"])
+                if not _same_design_inputs(state, result.get("projectState") or {}):
+                    raise ValueError("Inputs have changed since these outputs were generated. Rerun the design before saving outputs with this project.")
+                document["designOutputs"] = design_library.pack({**result, "projectState": state, "project": state.get("projectName") or result["project"]}, files)
+            # Atomic replacement leaves an existing project intact on failure.
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=Path(path).parent, prefix=".cloning-project-", delete=False) as handle:
+                staging = Path(handle.name)
+                try:
+                    json.dump(document, handle, indent=2)
+                except Exception:
+                    staging.unlink(missing_ok=True)
+                    raise
+            try:
+                staging.replace(path)
+            finally:
+                staging.unlink(missing_ok=True)
+        except Exception as exc:
+            return {"ok": False, "error": f"Could not save project: {exc}"}
         self.current_project = path
         self._remember_project(path)
         return {"ok": True, "path": path, "recent": self.recent_projects()}
 
     def save_project_as(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        self.current_project = None
-        return self.save_project(payload)
+        return self._save_project(payload, True)
 
     def open_project(self, path: Optional[str] = None) -> Dict[str, Any]:
         if not path:
@@ -692,6 +750,16 @@ class NativeAPI:
         try:
             document = json.loads(Path(path).read_text(encoding="utf-8"))
             state = document["state"]
+            output = None
+            if document.get("designOutputs"):
+                output, files = design_library.unpack(document["designOutputs"])
+                if not _same_design_inputs(state, output.get("projectState") or {}):
+                    raise ValueError("Project inputs do not match the embedded outputs; regenerate them from the intended inputs.")
+                output["projectState"] = copy.deepcopy(state)
+                run = design_library.save(application_support(), output, files)
+                output["savedRun"] = run
+                state.setdefault("goldenGateDesign", {})["savedRunId"] = run["id"]
+                self._design_files = files
             all_paths = [state.get("parentPath", "")]
             all_paths.extend(row.get("path", "") for row in state.get("inserts", []))
             all_paths.extend(
@@ -701,11 +769,12 @@ class NativeAPI:
             )
             all_paths.extend(row.get("path", "") for row in state.get("consensuses", []))
             design_map = (state.get("goldenGateDesign") or {}).get("map") or {}
-            all_paths.append(design_map.get("path", ""))
+            if not design_map.get("embeddedSnapGene"):
+                all_paths.append(design_map.get("path", ""))
             missing = [item for item in all_paths if item and not Path(item).exists()]
             self.current_project = path
             self._remember_project(path)
-            return {"ok": True, "path": path, "state": state, "missing": missing, "recent": self.recent_projects()}
+            return {"ok": True, "path": path, "state": state, "designResult": output, "missing": missing, "recent": self.recent_projects()}
         except Exception as exc:
             return {"ok": False, "error": f"Could not open project: {exc}"}
 
@@ -808,6 +877,11 @@ class NativeAPI:
                 session = json.loads((job.parent / "session.json").read_text())
                 self.current_project = session.get("path")
                 info["updateRecovery"] = {"ok": True, "state": session["state"], "path": self.current_project}
+                run_id = (session["state"].get("goldenGateDesign") or {}).get("savedRunId")
+                if run_id:
+                    result, files = design_library.load(application_support(), run_id)
+                    self._design_files = files
+                    info["updateRecovery"]["designResult"] = result
             except Exception as exc:
                 info["updateRecoveryError"] = f"Could not restore update session: {exc}"
         return info

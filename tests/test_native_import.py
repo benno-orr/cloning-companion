@@ -1,6 +1,7 @@
 import struct
 import json
 import zipfile
+import copy
 from pathlib import Path
 
 import pytest
@@ -140,6 +141,83 @@ def test_design_library_failed_transaction_keeps_previous_runs(tmp_path):
         design_library.save(tmp_path, {**result, 'project': None}, {})
     assert design_library.list_runs(tmp_path) == [run]
     assert design_library.load(tmp_path, run['id'])[0]['project'] == 'saved'
+
+
+def test_project_restores_inputs_outputs_and_reruns_without_original_map(tmp_path, monkeypatch):
+    support = tmp_path / 'support'
+    support.mkdir()
+    monkeypatch.setattr('mac_app.main.application_support', lambda: support)
+    source = tmp_path / 'map.dna'
+    _write_snapgene_map(source, 'CACC' + 'A' * 20 + 'TGAAATGGCC', [
+        {'name': '[Backbone]', 'start': 0, 'end': 28},
+        {'name': 'pUC ori', 'start': 4, 'end': 20},
+        {'name': '{Insert}', 'start': 28, 'end': 34},
+        {'name': '-', 'start': 24, 'end': 28}, {'name': '-', 'start': 0, 'end': 4},
+    ], 'Project input')
+    api = NativeAPI()
+    variants = {'fragment_2': 'variant,ATGAGC'}
+    result = api.run_annotated_golden_gate_design(str(source), variable_texts=variants,
+        project_state={'projectName': 'My cloning project', 'method': 'Gibson', 'armLength': 24})
+    assert result['ok'], result
+    state = copy.deepcopy(result['projectState'])
+    assert state['goldenGateDesign']['variableTexts'] == variants
+    assert state['goldenGateDesign']['map']['embeddedSnapGene']
+    assert state['armLength'] == 24
+    expected_files = {key: item['data'] for key, item in api._design_files.items()}
+    state['goldenGateDesign']['savedRunId'] = result['savedRun']['id']
+    project = tmp_path / 'portable.plasmidverify'
+    monkeypatch.setattr(api, '_save_dialog', lambda *args: str(project))
+    assert api.save_project(state)['ok']
+    document = json.loads(project.read_text())
+    assert document['version'] == 2 and document['designOutputs']
+    before = project.read_bytes()
+    changed = copy.deepcopy(state)
+    changed['goldenGateDesign']['variableTexts'] = {'fragment_2': 'other,ATGGCC'}
+    assert not api.save_project(changed)['ok']
+    assert project.read_bytes() == before
+    monkeypatch.setattr(api, '_save_dialog', lambda *args: None)
+    assert api.save_project_as(state)['cancelled']
+    assert api.current_project == str(project)
+    assert api.start_new_project()
+    assert api.current_project is None and not api._design_files
+    assert len(api.list_saved_designs()['runs']) == 1  # New Project never deletes saved work.
+    # Simulate a different Mac: no source map and an empty app library.
+    source.unlink()
+    support = tmp_path / 'second-mac-support'
+    support.mkdir()
+    restarted = NativeAPI()
+    tampered = copy.deepcopy(document)
+    tampered['state']['goldenGateDesign']['enzyme'] = 'BsaI'
+    bad_project = tmp_path / 'mismatched.plasmidverify'
+    bad_project.write_text(json.dumps(tampered))
+    assert not restarted.open_project(str(bad_project))['ok']
+    assert restarted.list_saved_designs()['runs'] == []
+    opened = restarted.open_project(str(project))
+    assert opened['ok'], opened
+    assert opened['missing'] == []
+    assert opened['state']['projectName'] == 'My cloning project'
+    assert opened['designResult']['graphics'] == result['graphics']
+    assert {key: item['data'] for key, item in restarted._design_files.items()} == expected_files
+    map_info = opened['state']['goldenGateDesign']['map']
+    rerun = restarted.run_annotated_golden_gate_design(map_info['path'], variable_texts=variants, project_state=opened['state'])
+    assert rerun['ok'], rerun
+    assert rerun['projectState']['projectId'] == state['projectId']
+    assert len(restarted.list_saved_designs()['runs']) == 1  # Same project, newer revision.
+    # Opening from the in-app project library carries its input snapshot too.
+    recovered = NativeAPI().open_saved_design(rerun['savedRun']['id'])
+    assert recovered['projectState']['goldenGateDesign']['map'] == map_info
+    assert recovered['projectState']['goldenGateDesign']['variableTexts'] == variants
+    assert not list(tmp_path.glob('.cloning-project-*'))
+
+
+def test_legacy_project_still_opens_and_reports_missing_inputs(tmp_path, monkeypatch):
+    monkeypatch.setattr('mac_app.main.application_support', lambda: tmp_path)
+    path = tmp_path / 'legacy.plasmidverify'
+    state = {'goldenGateDesign': {'map': {'path': str(tmp_path / 'missing.dna')}}}
+    path.write_text(json.dumps({'format': 'CloningCompanion Project', 'version': 1, 'state': state}))
+    result = NativeAPI().open_project(str(path))
+    assert result['ok'] and result['designResult'] is None
+    assert result['missing'] == [str(tmp_path / 'missing.dna')]
 
 
 def test_failed_design_cleans_staging_and_preserves_existing_downloads(tmp_path, monkeypatch):

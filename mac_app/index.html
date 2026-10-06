@@ -387,8 +387,9 @@
             <div class="picker-sub">Drop your SnapGene .dna file here, or click to choose it.</div><div class="file-summary" id="design-map-summary">Drop or choose a .dna map…</div>
           </button>
           <div class="design-settings"><h3>Assembly settings</h3>
+            <label class="design-enzyme">Project name <input id="design-project-name" placeholder="Name this project" style="min-width:0;max-width:65%;padding:8px;border:1px solid var(--line);border-radius:8px"></label>
             <label class="design-enzyme">Type IIS enzyme <select id="design-enzyme"><option value="BsmBI">BsmBI / Esp3I</option><option value="BsaI">BsaI</option></select></label>
-          <div class="design-summary"><strong>Saved in the app. Export when ready.</strong><br>Completed runs stay in your local design library after restarting. No export folder is created unless you download files.</div>
+          <div class="design-summary"><strong>Saved as a project in the app.</strong><br>Your map, variants, settings and generated outputs reopen together. Download individual outputs or use Save Project for a portable project file.</div>
           </div>
         </div>
         <details class="feature-guide"><summary>How to annotate your SnapGene map</summary><div class="design-summary"><strong>Feature labels:</strong> use <code>[name]</code> for a fragment that is fixed across constructs and <code>{name}</code> for a fragment that varies across constructs. The core overlapping <code>pUC ori</code> or <code>ori pUC</code> is automatically the backbone. The order of cores on the circular map is the assembly order. Add one <code>(name)</code> or <code>-</code> feature at each core boundary; it marks where that junction may be placed. Each junction region must be at least 4 bp. Other ordinary annotations are ignored. The detected backbone is output as PCR; other cores as synthesis fragments.</div></details>
@@ -399,7 +400,7 @@
         <div class="eyebrow">Golden Gate design · output</div>
         <h1>Your assembly, resolved.</h1>
         <p class="subtitle">Explore junctions, inspect the assembled product, and find every sequence you need to order.</p>
-        <section class="panel"><div class="panel-head"><strong>Saved designs</strong><span>Stored locally in the app</span></div><div class="graphic-tabs"><select id="saved-design-select" aria-label="Saved design" style="flex:1;min-width:180px;max-width:100%;padding:9px"></select><button class="button" id="open-saved-design">Open saved run</button></div></section>
+        <section class="panel"><div class="panel-head"><strong>Saved projects</strong><span>Inputs and outputs · stored locally</span></div><div class="graphic-tabs"><select id="saved-design-select" aria-label="Saved project" style="flex:1;min-width:180px;max-width:100%;padding:9px"></select><button class="button" id="open-saved-design">Open project</button></div></section>
         <div id="design-results" class="design-output"></div>
       </div>
     </section>
@@ -463,13 +464,13 @@ function designDownloadsPanel(result){
   const files=result.downloads||[];
   const labels={'synthesis_order.tsv':'Sequences to order · TSV','synthesis_order.fasta':'Sequences to order · FASTA','pcr_primers.tsv':'PCR primers · TSV','assembly_recipe.tsv':'Assembly recipe · TSV','assembly_schematic.dna':'Assembly schematic · SnapGene'};
   const button=f=>`<button class="button" data-download="${esc(f.id)}">${esc(labels[f.filename]||f.relativePath)}</button>`;
-  return `<section class="panel" id="design-downloads"><div class="panel-head"><strong>Download outputs</strong><span>Saved in app${result.savedRun?` · ${esc(new Date(result.savedRun.created).toLocaleString())}`:''}</span></div><div class="design-summary">This completed run is kept in your local design library, including its graphics and downloadable files. New runs and app restarts do not replace it. Download only when you want a separate file or ZIP. Opening saved outputs does not change your current map inputs.</div><div class="graphic-tabs"><button class="button primary" data-download-bundle="all">Download everything · ZIP</button><button class="button" data-download-bundle="plasmids">All plasmids · ZIP</button><button class="button" data-download-bundle="orders">Order sequences & primers · ZIP</button><button class="button" data-download-bundle="graphics">All graphics · ZIP</button></div><div class="graphic-tabs">${files.filter(f=>labels[f.filename]).map(button).join('')}</div><details class="feature-guide"><summary>Reports & additional files</summary><div class="graphic-tabs">${files.filter(f=>!labels[f.filename]&&f.group==='other').map(button).join('')}</div></details></section>`;
+  return `<section class="panel" id="design-downloads"><div class="panel-head"><strong>Download outputs</strong><span>Saved in app${result.savedRun?` · ${esc(new Date(result.savedRun.created).toLocaleString())}`:''}</span></div><div class="design-summary">${result.projectState?'This project keeps its input map, enzyme, variants, graphics and output files together. Reopen it from Saved projects, or use Save Project to create a portable .plasmidverify file.':'Legacy output-only run: input settings were not stored by the earlier app version.'} Downloads create separate files only when you request them.</div><div class="graphic-tabs"><button class="button primary" data-download-bundle="all">Download everything · ZIP</button><button class="button" data-download-bundle="plasmids">All plasmids · ZIP</button><button class="button" data-download-bundle="orders">Order sequences & primers · ZIP</button><button class="button" data-download-bundle="graphics">All graphics · ZIP</button></div><div class="graphic-tabs">${files.filter(f=>labels[f.filename]).map(button).join('')}</div><details class="feature-guide"><summary>Reports & additional files</summary><div class="graphic-tabs">${files.filter(f=>!labels[f.filename]&&f.group==='other').map(button).join('')}</div></details></section>`;
 }
 
 function renderSavedDesigns(selectedId){
   const select=document.getElementById('saved-design-select');
   const selected=selectedId||select.value;
-  select.innerHTML=(state.savedDesigns||[]).map(run=>`<option value="${esc(run.id)}">${esc(new Date(run.created).toLocaleString())} · ${esc(run.title)} · ${fmt(run.plasmidCount)} plasmids</option>`).join('')||'<option value="">No saved designs yet</option>';
+  select.innerHTML=(state.savedDesigns||[]).map(run=>`<option value="${esc(run.id)}">${esc(new Date(run.created).toLocaleString())} · ${esc(run.title)} · ${fmt(run.plasmidCount)} plasmids</option>`).join('')||'<option value="">No saved projects yet</option>';
   if((state.savedDesigns||[]).some(run=>run.id===selected))select.value=selected;
   select.disabled=designBusy||!state.savedDesigns?.length;
   document.getElementById('open-saved-design').disabled=select.disabled;
@@ -482,7 +483,7 @@ async function refreshSavedDesigns(selectedId){
 async function openSavedDesign(id){
   if(designBusy||!id)return;
   designBusy=true;updateDesignReady();
-  try{const result=await pywebview.api.open_saved_design(id);if(!result.ok)throw new Error(result.error);renderDesignResults(result);renderSavedDesigns(id);showView('design-results');toast('Saved design opened')}catch(e){toast(String(e),true)}
+  try{const result=await pywebview.api.open_saved_design(id);if(!result.ok)throw new Error(result.error);if(result.projectState){applyProject({state:result.projectState,designResult:result,path:null});toast('Project inputs and outputs restored')}else{renderDesignResults(result);toast('Legacy output-only run: input settings were not stored.')}renderSavedDesigns(id);showView('design-results')}catch(e){toast(String(e),true)}
   finally{designBusy=false;updateDesignReady();}
 }
 
@@ -491,11 +492,12 @@ function toast(message, error=false) {
   clearTimeout(window.toastTimer); window.toastTimer=setTimeout(()=>el.classList.remove('show'),3300);
 }
 function currentProjectState() {
-  return {method:state.method,armLength:state.armLength,enzyme:state.enzyme,parentPath:'',inserts:state.inserts,consensuses:state.consensuses,goldenGateDesign:{map:state.designMap,enzyme:document.getElementById('design-enzyme').value,variableTexts:state.designVariableTexts}};
+  return {projectName:state.projectName,projectId:state.projectId,method:state.method,armLength:state.armLength,enzyme:state.enzyme,parentPath:'',inserts:state.inserts,consensuses:state.consensuses,goldenGateDesign:{map:state.designMap,enzyme:document.getElementById('design-enzyme').value,variableTexts:state.designVariableTexts,savedRunId:state.activeDesignRunId}};
 }
 window.getProjectState=currentProjectState;
 function setDocument(path) {
-  document.getElementById('document-title').childNodes[0].textContent=path?path.split('/').pop().replace(/\.plasmidverify$/,''):'Untitled Project';
+  state.projectPath=path||null;
+  document.getElementById('document-title').childNodes[0].textContent=state.projectName||(path?path.split('/').pop().replace(/\.plasmidverify$/,''):'Untitled Project');
 }
 function setMethod(method) {
   state.method=method;
@@ -649,6 +651,7 @@ function targetDetail(r){
 function renderDesignResults(result=null){
   const root=document.getElementById('design-results');
   designGraphics=result?.graphics||[];
+  state.activeDesignRunId=result?.projectState?result.savedRun?.id:null;
   updateDesignReady();
   if(!result){root.innerHTML='<div class="design-empty"><div class="picker-icon">⌁</div><h3>A clear view of your assembly</h3><p>Generate a design to see junction graphics, sequence maps,<br>and your complete list of fragments to order.</p><button class="button" id="back-to-design">Go to map & fragments →</button></div>';document.getElementById('back-to-design').onclick=()=>showView('design');return;}
   const junctions=(result.junctions||[]).map(j=>`<tr><td>${esc(j.junction_id)}</td><td><code>${esc(j.selected_fusion)}</code></td><td>${fmt(j.offset_in_allowed_region)}</td><td>${esc(j.candidate_region_source)}</td></tr>`).join('');
@@ -685,6 +688,7 @@ async function chooseAnnotatedDesignMap(){
 function acceptDesignMap(map){
   if(designBusy){toast('Wait for the current design to finish before changing the map',true);return;}
   if(state.designMap?.path!==map.path)state.designVariableTexts={};state.designMap=map;
+  if(!state.projectName){state.projectName=map.filename.replace(/\.dna$/i,'');document.getElementById('design-project-name').value=state.projectName;setDocument(state.projectPath);}
   document.getElementById('design-map-summary').textContent=`${map.filename} · backbone: ${map.backboneName} · ${map.fragmentCount} fragments · ${map.junctionCount} junctions`;
   document.getElementById('pick-design-map').classList.add('loaded');renderVariableElements();renderDesignResults();toast(`Read ${map.filename}`);
 }
@@ -700,29 +704,31 @@ async function runAnnotatedGoldenGateDesign(){
   if(!state.designMap){toast('Drop or choose an annotated SnapGene map first',true);return;}
   if(designBusy)return;designBusy=true;
   updateDesignReady();
-  const inputs=document.querySelectorAll('#pick-design-map,#design-enzyme,#design-variable-elements textarea');inputs.forEach(input=>input.disabled=true);
+  const inputs=document.querySelectorAll('#pick-design-map,#design-project-name,#design-enzyme,#design-variable-elements textarea');inputs.forEach(input=>input.disabled=true);
   const button=document.getElementById('run-design');button.disabled=true;button.querySelector('.file-summary').innerHTML='<span class="spinner"></span>Designing…';
-  try{const enzyme=document.getElementById('design-enzyme').value;const result=await pywebview.api.run_annotated_golden_gate_design(state.designMap.path,null,enzyme,state.designVariableTexts);if(!result.ok)throw new Error(result.error);renderDesignResults(result);await refreshSavedDesigns(result.savedRun?.id);showView('design-results');toast(`Saved in app · ${result.fragments.length} fragments available to download`)}catch(e){renderDesignResults();toast(`Golden Gate design failed: ${e}`,true)}
+  try{const enzyme=document.getElementById('design-enzyme').value;const result=await pywebview.api.run_annotated_golden_gate_design(state.designMap.path,null,enzyme,state.designVariableTexts,currentProjectState());if(!result.ok)throw new Error(result.error);applyProject({state:result.projectState,designResult:result,path:state.projectPath});await refreshSavedDesigns(result.savedRun?.id);showView('design-results');toast(`Project saved in app · ${result.fragments.length} fragments available to download`)}catch(e){renderDesignResults();toast(`Golden Gate design failed: ${e}`,true)}
   finally{designBusy=false;inputs.forEach(input=>input.disabled=false);button.querySelector('.file-summary').textContent='Generate design →';updateDesignReady();}
 }
 
 async function saveProject(asNew=false){
-  try{const result=await pywebview.api[asNew?'save_project_as':'save_project'](currentProjectState());if(result.ok){state.recent=result.recent||state.recent;renderRecent();setDocument(result.path);toast(`Saved ${result.path.split('/').pop()}`)}}catch(e){toast(String(e),true)}
+  try{const result=await pywebview.api[asNew?'save_project_as':'save_project'](currentProjectState());if(result.ok){state.recent=result.recent||state.recent;renderRecent();setDocument(result.path);toast(`Saved ${result.path.split('/').pop()}`)}else if(!result.cancelled)toast(result.error,true)}catch(e){toast(String(e),true)}
 }
 window.saveProjectFromMenu=()=>saveProject(false);
 window.loadProjectFromNative=result=>applyProject(result);
 async function openRecent(index){const result=await pywebview.api.open_project(state.recent[index].path);if(result.ok)applyProject(result);else if(result.error)toast(result.error,true)}
 function applyProject(result){
   const p=result.state;state.inserts=p.inserts||[];state.consensuses=p.consensuses||[];state.recent=result.recent||state.recent;
+  state.projectName=p.projectName||'';state.projectId=p.projectId||null;
+  document.getElementById('design-project-name').value=state.projectName;
   const design=p.goldenGateDesign||{};state.designMap=design.map||null;state.designVariableTexts=design.variableTexts||{};
   document.getElementById('design-enzyme').value=design.enzyme||'BsmBI';
   document.getElementById('design-map-summary').textContent=state.designMap?.filename||'Choose a .dna map…';
   document.getElementById('pick-design-map').classList.toggle('loaded',!!state.designMap);
-  renderVariableElements();renderDesignResults();
-  setMethod(p.method||'Gibson');document.getElementById('armLength').value=p.armLength||15;setEnzyme(p.enzyme||'BsaI');setDocument(result.path);renderRecent();renderInputs();showView(state.designMap&&!state.inserts.length?'design':'setup');
+  renderVariableElements();renderDesignResults(result.designResult||null);
+  setMethod(p.method||'Gibson');state.armLength=p.armLength||15;document.getElementById('armLength').value=state.armLength;setEnzyme(p.enzyme||'BsaI');setDocument(result.path);renderRecent();renderInputs();showView(result.designResult?'design-results':state.designMap&&!state.inserts.length?'design':'setup');
   if(result.missing?.length)toast(`${result.missing.length} referenced sequence file${result.missing.length===1?' is':'s are'} missing`,true);else toast('Project opened');
 }
-window.newProject=()=>{applyProject({state:{},path:null});state.results=[];state.failures=[];};
+window.newProject=async()=>{if(designBusy||verificationBusy){toast('Wait for the current run to finish',true);return;}await pywebview.api.start_new_project();applyProject({state:{},path:null});state.results=[];state.failures=[];renderResults();};
 window.nativeExportFinished=result=>{if(result.ok)toast(`Saved ${result.path.split('/').pop()}`);else if(result.error)toast(result.error,true)};
 async function exportKind(kind){try{const result=await pywebview.api[kind]();window.nativeExportFinished(result)}catch(e){toast(String(e),true)}}
 
@@ -781,6 +787,7 @@ designDrop.ondrop=event=>{event.preventDefault();designDrop.classList.remove('dr
 document.getElementById('graphic-close').onclick=()=>document.getElementById('graphic-lightbox').close();
 document.getElementById('graphic-zoom').onclick=()=>{const actual=document.getElementById('graphic-lightbox-image').classList.toggle('actual-size');document.getElementById('graphic-zoom').textContent=actual?'Fit to window':'Actual size'};
 document.getElementById('design-enzyme').onchange=()=>renderDesignResults();
+document.getElementById('design-project-name').oninput=event=>{state.projectName=event.target.value;setDocument(state.projectPath);};
 document.getElementById('save-project').onclick=()=>saveProject(false);
 document.getElementById('check-updates').onclick=window.checkForUpdates;
 document.getElementById('nav-setup').onclick=()=>showView('setup');document.getElementById('nav-results').onclick=()=>showView('results');document.getElementById('nav-design').onclick=()=>showView('design');
@@ -801,7 +808,7 @@ function initializeNativeBridge(){
       if(!enabled)throw new Error('The SnapGene drop target was not found');
       const info=await pywebview.api.app_info();window.appVersion=info.version;state.recent=info.recent||[];renderRecent();renderInputs();
       state.savedDesigns=info.savedDesigns||[];renderSavedDesigns();
-      if(info.updateRecovery){applyProject(info.updateRecovery);await pywebview.api.acknowledge_update_recovery();toast('Project inputs restored. Completed designs are available in Saved designs.');}
+      if(info.updateRecovery){applyProject(info.updateRecovery);await pywebview.api.acknowledge_update_recovery();toast('Project restored. Completed designs are available in Saved projects.');}
       if(state.savedDesigns.length&&!info.updateRecovery)await openSavedDesign(state.savedDesigns[0].id);
       if(info.designLibraryError)toast(info.designLibraryError,true);
       if(info.updateRecoveryError)toast(info.updateRecoveryError,true);

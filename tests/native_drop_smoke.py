@@ -85,7 +85,8 @@ def main():
                 window.evaluate_js("document.getElementById('modal-close').click()")
                 assert window.evaluate_js("document.getElementById('modal-backdrop').classList.contains('hidden')")
                 print('PASS: in-app update button → native check → version/status dialog', flush=True)
-                designed = api.run_annotated_golden_gate_design(str(source), str(Path(directory)/'outputs'))
+                designed = api.run_annotated_golden_gate_design(str(source), str(Path(directory)/'outputs'),
+                    project_state={'projectName': 'Saved smoke project', 'armLength': 24})
                 assert designed['ok'] and designed['plasmidCount'] == 1
                 window.evaluate_js('renderDesignResults(%s)' % json.dumps(designed))
                 assert window.evaluate_js("document.querySelectorAll('[data-plasmid]').length") == 1
@@ -124,7 +125,11 @@ def main():
                     time.sleep(.1)
                 assert window.evaluate_js("document.querySelector('[data-plasmid]') !== null")
                 assert api._design_files
-                print('PASS: saved app library → reopened previews → individual SnapGene and order ZIP downloads', flush=True)
+                assert window.evaluate_js('state.projectName') == 'Saved smoke project'
+                assert window.evaluate_js('state.designMap.embeddedSnapGene')
+                assert window.evaluate_js('state.armLength') == 24
+                assert window.evaluate_js('currentProjectState().goldenGateDesign.savedRunId') == designed['savedRun']['id']
+                print('PASS: saved project → restored map, settings and outputs → SnapGene and order ZIP downloads', flush=True)
         except Exception as exc:
             errors.append(exc)
             print('FAIL:', repr(exc), flush=True)
