@@ -11,6 +11,8 @@ from __future__ import annotations
 import csv
 import copy
 import colorsys
+import itertools
+from collections import Counter
 import io
 import json
 import re
@@ -24,7 +26,7 @@ from xml.etree.ElementTree import Element, SubElement, tostring, fromstring
 import yaml
 from Bio import SeqIO
 from Bio.Seq import Seq
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageColor
 
 from .fasta import clean_sequence, parse_sequence_file, reverse_complement, to_fasta
 
@@ -49,15 +51,27 @@ def _fragment_color(n: int) -> str:
 
 def _fragment_palette(rows: list[dict[str, Any]]) -> list[str]:
     backbone = next((i for i, row in enumerate(rows) if row.get("is_backbone")), 0)
-    return [_fragment_color((i - backbone) % len(rows)) for i in range(len(rows))]
+    return [row.get("feature_color") or _fragment_color((i - backbone) % len(rows)) for i, row in enumerate(rows)]
 
 
 def _display_color(value: str, default: str = "#555555") -> str:
     # Accept custom RGB colors and older named SnapGene strand colors.
     if re.fullmatch(r"#[0-9a-fA-F]{6}", value):
         return value
-    return {"red": "#ff0000", "orange": "#ff8800", "green": "#009900", "blue": "#164cff",
-            "violet": "#8844cc", "gray - 50": "#a0a0a0"}.get(value, default)
+    legacy = {"red": "#ff0000", "orange": "#ff8800", "green": "#009900", "blue": "#164cff",
+              "violet": "#8844cc", "gray - 50": "#a0a0a0"}
+    if value in legacy:
+        return legacy[value]
+    try:
+        return "#" + "".join(f"{v:02x}" for v in ImageColor.getrgb(value))
+    except (ValueError, TypeError):
+        return default
+
+
+def _label_color(background: str) -> str:
+    color = _display_color(background)
+    brightness = sum(int(color[i:i + 2], 16) * weight for i, weight in ((1, .299), (3, .587), (5, .114)))
+    return "#ffffff" if brightness < 150 else "#111111"
 
 
 def _dna(value: str) -> str:
@@ -295,6 +309,7 @@ def _expanded_fragment_specs(plan: dict[str, Any]) -> list[dict[str, Any]]:
                 window = fragment.get("variant_window")
                 if window:
                     variant_core = window.get("fixed_core_prefix", "") + variant_core + window.get("fixed_core_suffix", "")
+                    spec["full_variant_core"] = variant_core
                     trim_left, trim_right = window["trim_left"], window["trim_right"]
                     if len(variant_core) <= trim_left + trim_right:
                         raise ValueError(f"{element_id} / {name}: variant is shorter than its junction trims")
@@ -381,6 +396,52 @@ def _snapgene_features_xml(path: Path) -> list[Element]:
 def _qualifier(feature: Element, name: str, default: str = "") -> str:
     value = feature.find(f"Q[@name='{name}']/V")
     return next((value.get(key) for key in ("text", "int", "predef") if value.get(key) is not None), default) if value is not None else default
+
+
+def _source_strand_colors(path: Path, length: int) -> dict[str, list]:
+    values = {strand: [None] * length for strand in ("TopStrand", "BottomStrand")}
+    if path.suffix.lower() != ".dna":
+        return values
+    data, offset = path.read_bytes(), 0
+    while offset + 5 <= len(data):
+        kind, size = struct.unpack(">BI", data[offset:offset + 5])
+        if kind == 0x14:
+            root = fromstring(data[offset + 5:offset + 5 + size])
+            for strand in values:
+                for item in root.findall(f"{strand}/ColorRange"):
+                    a, b = map(int, item.get("range").split(".."))
+                    if 0 <= a <= b < length:
+                        values[strand][a:b + 1] = [item.get("colors")] * (b - a + 1)
+            break
+        offset += size + 5
+    return values
+
+
+def _inherit_fragment_styles(rows, scaffold):
+    features = _snapgene_features_xml(scaffold.path)
+    strands = _source_strand_colors(scaffold.path, len(scaffold.sequence))
+    for row in rows:
+        name = row.get("native_core_feature") or row.get("core_source", {}).get("scaffold_feature")
+        feature = next((f for f in features if f.get("name") == name), None)
+        if feature is None:
+            continue
+        segments = feature.findall("Segment")
+        colors = [s.get("color") for s in segments if s.get("color") not in (None, "noColor")]
+        if colors:
+            row["feature_color"] = colors[0]
+        positions = [p for s in segments for p in _segment_positions(s, len(scaffold.sequence))]
+        for strand, values in strands.items():
+            available = [values[p] for p in positions if values[p] is not None]
+            if available:
+                row[strand + "_color"] = Counter(available).most_common(1)[0][0]
+
+
+def _color_ranges(parent: Element, values: list[str]) -> None:
+    start = 0
+    for end in range(1, len(values) + 1):
+        if end == len(values) or values[end] != values[start]:
+            SubElement(parent, "ColorRange", {"range": f"{start}..{end - 1}", "colors": values[start]})
+            start = end
 
 
 def _coding_segment(feature: Element, segment: Element) -> bool:
@@ -576,6 +637,10 @@ def _write_assembly_schematic(path: Path, rows: list[dict[str, Any]], all_rows: 
     top, bottom = SubElement(strand_colors, "TopStrand"), SubElement(strand_colors, "BottomStrand")
     native_features = _snapgene_features_xml(scaffold.path)
     palette = _fragment_palette(rows)
+    backbone = next((i for i, row in enumerate(rows) if row.get("is_backbone")), 0)
+    dna_palette = {strand: [row.get(strand + "_color") or _fragment_color((i - backbone) % len(rows))
+                           for i, row in enumerate(rows)] for strand in ("TopStrand", "BottomStrand")}
+    source_colors = _source_strand_colors(scaffold.path, len(scaffold.sequence))
     junction_positions = {}
 
     # Native core membership is independent of which physical fragment carries
@@ -585,8 +650,8 @@ def _write_assembly_schematic(path: Path, rows: list[dict[str, Any]], all_rows: 
         if row.get("native_core_feature"):
             _, spans = scaffold.feature(row["native_core_feature"])
             for a, b in spans:
-                owners[a:b] = [palette[owner_index]] * (b - a)
-    if any(owners):
+                owners[a:b] = [owner_index] * (b - a)
+    if any(value is not None for value in owners):
         next_owner = next(value for value in owners if value is not None)
         for position in range(len(owners) * 2 - 1, -1, -1):
             offset = position % len(owners)
@@ -595,19 +660,18 @@ def _write_assembly_schematic(path: Path, rows: list[dict[str, Any]], all_rows: 
             elif position < len(owners):
                 owners[offset] = next_owner
 
-    def retained_colors(row, index, left, right):
-        current = palette[index]
+    def retained_colors(row, index, left, right, strand):
+        colors = dna_palette[strand]
+        current = colors[index]
         native_window = row.get("native_window")
         if native_window:
-            a, b = native_window
-            original = [owners[(a + n) % len(owners)] for n in range((b - a) % len(owners))]
-            if row.get("variant_name"):
-                window = row["variant_window"]
-                prefix, suffix = len(window["prefix"]), len(window["suffix"])
-                return original[:prefix] + [current] * (len(row["core_sequence"]) - prefix - suffix) + (original[-suffix:] if suffix else [])
-            return original
-        return ([palette[index - 1]] * len(left) + [current] * len(row["core_sequence"]) +
-                [palette[(index + 1) % len(rows)]] * len(right))
+            values = [current] * (len(left) + len(row["core_sequence"]) + len(right))
+            for original, target in _native_row_mapping(row, scaffold, len(left)).items():
+                owner = owners[original]
+                values[target] = source_colors[strand][original] or (colors[owner] if owner is not None else current)
+            return values
+        return ([colors[index - 1]] * len(left) + [current] * len(row["core_sequence"]) +
+                [colors[(index + 1) % len(rows)]] * len(right))
 
     def color(parent, start, end, value):
         if end > start:
@@ -636,20 +700,21 @@ def _write_assembly_schematic(path: Path, rows: list[dict[str, Any]], all_rows: 
         core_start, core_end = _fragment_core_bounds(row, len(retained))
         feature_start, feature_end = start + core_start, start + core_end
         features.append({"name": label, "start": feature_start, "end": feature_end,
-                         "owner_color": palette[index],
+                         "owner_color": dna_palette["TopStrand"][index],
                          "assigned_extensions": [(start + a, start + b) for a, b in _fragment_extensions(row, len(retained))],
                          "color": palette[index],
                          "note": f"Shown: {row['name']}. Options: {', '.join(options)}. Planning schematic, not order DNA."})
         features.extend(_project_core_annotations(row, scaffold, start + len(left), native_features))
-        provenance = retained_colors(row, index, left, right)
-        if len(provenance) != len(retained) or any(value is None for value in provenance):
+        top_colors = retained_colors(row, index, left, right, "TopStrand")
+        bottom_colors = retained_colors(row, index, left, right, "BottomStrand")
+        if any(len(values) != len(retained) or any(value is None for value in values) for values in (top_colors, bottom_colors)):
             raise ValueError("Fragment base provenance does not match its retained sequence")
-        color_bases(top, start, provenance[:4])
-        color_bases(top, start + 4, provenance[4:-4])
+        color_bases(top, start, top_colors[:4])
+        color_bases(top, start + 4, top_colors[4:-4])
         color(top, end - 4, end, "gray - 50")
         color(bottom, start, start + 4, "gray - 50")
-        color_bases(bottom, start + 4, provenance[4:-4])
-        color_bases(bottom, end - 4, provenance[-4:])
+        color_bases(bottom, start + 4, bottom_colors[4:-4])
+        color_bases(bottom, end - 4, bottom_colors[-4:])
         for fusion, a, b in ((row["left_fusion"], start, start + 4), (row["right_fusion"], end - 4, end)):
             features.append({"name": fusion, "start": a, "end": b, "color": "#bfbfbf", "note": "Selected 4 bp Golden Gate fusion"})
         gap_start = len(sequence)
@@ -863,7 +928,8 @@ def _write_schematic_junction_image(path: Path, map_path: Path, gap_start: int, 
         for strand, text, y in (("TopStrand", base, 15), ("BottomStrand", complement, 52)):
             value = colors[strand][position % length]
             if joined and gap_start - 4 <= position < gap_start:
-                value = colors["BottomStrand"][position % length]
+                value = (colors["TopStrand"][(gap_start + gap_length + position - (gap_start - 4)) % length]
+                         if strand == "TopStrand" else colors["BottomStrand"][position % length])
             # Center the glyph in its base column so cut lines occupy the
             # spaces between bases, never the letters themselves.
             if joined or fragment_ends:
@@ -939,7 +1005,8 @@ def _write_schematic_junction_image(path: Path, map_path: Path, gap_start: int, 
                 if fragment_ends and is_fusion and a < gap_start:
                     continue  # Label the shared overhang once, on the right.
                 draw.rectangle((x(a), 87 if fragment_ends else 80, x(b), 106 if fragment_ends else 99 if clean else 97), fill="#ffffff" if fragment_ends and is_fusion else segment.get("color", "#cccccc"), outline="#a8adb3" if clean else "#777777")
-                centered(name, a, b, (88 if is_core else 110) if fragment_ends else 81 if is_core else 101)
+                centered(name, a, b, (88 if is_core else 110) if fragment_ends else 81 if is_core else 101,
+                         fill=_label_color(segment.get("color", "#cccccc")) if is_core else "#111111")
     for feature, segments, lane in protein:
         y = protein_y + lane * 72
         codons = _visible_codons(feature, sequence, first, last)
@@ -1119,7 +1186,7 @@ def _write_plasmid_junction_figure(path, rows, starts, retained, sequence, junct
             label = row["element_name"]
             label_width = draw.textbbox((0, 0), label, font=font)[2]
             if x(b) - x(a) > label_width + 12:
-                draw.text(((x(a) + x(b) - label_width) / 2, map_y - 17), label, font=font, fill="#18382c")
+                draw.text(((x(a) + x(b) - label_width) / 2, map_y - 17), label, font=font, fill=_label_color(color))
     for tick in range(6):
         base = round(length * tick / 5)
         draw.line((x(base), map_y + 28, x(base), map_y + 39), fill="#778079", width=2)
@@ -1135,7 +1202,7 @@ def _write_plasmid_junction_figure(path, rows, starts, retained, sequence, junct
         label = str(rank + 1)
         span = draw.textbbox((0, 0), label, font=small)[2]
         draw.text((anchor - span / 2, badge_y - 14), label, font=small, fill="white")
-    _draw_hatched_region(draw, (margin, height - 87, margin + 40, height - 62), _fragment_color(0))
+    _draw_hatched_region(draw, (margin, height - 87, margin + 40, height - 62), colors[backbone])
     draw.text((margin + 53, height - 90), "Hatched: assigned DNA outside the annotated core. Solid: annotated core.", font=small, fill="#647168")
     draw.text((margin, height - 46), "Map is to scale; short extensions are clearer in the zoom-ins. DNA colors retain native core ownership.", font=small, fill="#647168")
     figure.save(path, "PNG")
@@ -1361,6 +1428,146 @@ def _coordinate_fragment_plan(plan: dict[str, Any], scaffold: Scaffold, chosen: 
     return resolved, "".join(expected_parts)
 
 
+def _circular_identity(sequence: str) -> str:
+    """Canonical dsDNA circle, independent of origin and strand orientation."""
+    def least_rotation(value):
+        doubled, n, i, j, k = value + value, len(value), 0, 1, 0
+        while i < n and j < n and k < n:
+            a, b = doubled[i + k], doubled[j + k]
+            if a == b:
+                k += 1
+                continue
+            if a > b:
+                i += k + 1
+                if i <= j:
+                    i = j + 1
+            else:
+                j += k + 1
+                if j <= i:
+                    j = i + 1
+            k = 0
+        start = min(i, j)
+        return doubled[start:start + n]
+    return min(least_rotation(sequence), least_rotation(reverse_complement(sequence)))
+
+
+def _validate_product(rows, scaffold, sequence):
+    if not all(row.get("native_core_feature") for row in rows):
+        return
+    parts = []
+    for i, row in enumerate(rows):
+        original, spans = scaffold.feature(row["native_core_feature"])
+        parts.append(row.get("full_variant_core") or original)
+        _, following = scaffold.feature(rows[(i + 1) % len(rows)]["native_core_feature"])
+        end, start = spans[-1][1] % len(scaffold.sequence), following[0][0]
+        parts.append("" if end == start else _range(scaffold.sequence, end, start))
+    expected = "".join(parts)
+    if len(sequence) != len(expected) or sequence not in expected + expected:
+        raise ValueError("A plasmid combination does not reproduce its full cores and native linker DNA; no outputs written")
+
+
+def _unique_products(fragment_rows, scaffold):
+    slots = {}
+    for row in fragment_rows:
+        slots.setdefault(row["assembly_position"], []).append(row)
+    count = 1
+    for options in slots.values():
+        count *= len(options)
+    if count > 10000:
+        raise ValueError(f"This library has {count:,} combinations; split it into batches of at most 10,000. No combinations were silently omitted.")
+    products, seen, combinations = [], {}, []
+    for selected in itertools.product(*slots.values()):
+        rows = list(selected)
+        sequence, starts, retained = _assembled_circular_map(rows)
+        _validate_product(rows, scaffold, sequence)
+        key = _circular_identity(sequence)
+        choices = [{field: row[field] for field in ("element_name", "variant_name", "fragment_id")} for row in rows]
+        if key not in seen:
+            index = len(products) + 1
+            seen[key] = index
+            products.append({"id": f"P{index:04d}", "sequence": sequence, "starts": starts, "retained": retained,
+                             "rows": rows, "choices": choices, "aliases": []})
+        product = products[seen[key] - 1]
+        product["aliases"].append(choices)
+        combinations.append({"combination": len(combinations) + 1, "plasmid_id": product["id"],
+                             "choices": json.dumps(choices, ensure_ascii=False)})
+    return products, combinations
+
+
+def _product_map_features(rows, starts, retained, sequence, scaffold):
+    """Use native feature colors and project untouched annotations per product."""
+    length = len(sequence)
+    features, mapping = [], {}
+    palette = _fragment_palette(rows)
+    for i, row in enumerate(rows):
+        left, right = _fragment_core_bounds(row, len(retained[i]))
+        start = (starts[i] - 4 + left) % length
+        end = (start + right - left - 1) % length + 1
+        label = row["name"]
+        kind = row.get("annotation_kind")
+        label = f"[{label}]" if kind == "fixed" else f"{{{label}}}" if kind == "variable" else label
+        features.append({"name": label, "start": start, "end": end, "color": palette[i],
+                         "note": f"Core of {row['element_name']}; variant {row['variant_name'] or 'scaffold'}. Fusions {row['left_fusion']} → {row['right_fusion']}"})
+        cut = (starts[i] - 4) % length
+        features.append({"name": f"{row['left_junction']} · {row['left_fusion']}", "start": cut,
+                         "end": (cut + 3) % length + 1, "color": _JUNCTION_COLOR, "note": "Selected Golden Gate fusion overhang"})
+        extension = len(row["left_fusion"]) if row["left_fusion_owner"] == "extension" else 0
+        mapping.update({p: target % length for p, target in _native_row_mapping(row, scaffold, starts[i] - 4 + extension).items()})
+    native_features = _snapgene_features_xml(scaffold.path)
+    # Preserve multisegment native core styling whenever the whole annotation
+    # still maps. Changed variant cores inherit color without stale translation.
+    for i, row in enumerate(rows):
+        native = next((f for f in native_features if f.get("name") == row.get("native_core_feature")), None)
+        if native is not None:
+            core = copy.deepcopy(native)
+            core.set("name", "core_projection")
+            mapped = _project_annotations([core], scaffold.sequence, mapping, require_complete=True)
+            if mapped:
+                mapped[0]["xml"].set("name", features[2 * i]["name"])
+                features[2 * i] = mapped[0]
+    features.extend(_project_annotations(native_features, scaffold.sequence, mapping, require_complete=True))
+    source = _source_strand_colors(scaffold.path, len(scaffold.sequence))
+    colors = Element("StrandColors")
+    backbone = next((i for i, row in enumerate(rows) if row.get("is_backbone")), 0)
+    for strand in ("TopStrand", "BottomStrand"):
+        values = ["black"] * length
+        for i, row in enumerate(rows):
+            inherited = row.get(strand + "_color") or _fragment_color((i - backbone) % len(rows))
+            for offset in range(len(retained[i]) - 4):
+                values[(starts[i] - 4 + offset) % length] = inherited
+        for native, target in mapping.items():
+            if source[strand][native] is not None:
+                values[target] = source[strand][native]
+        _color_ranges(SubElement(colors, strand), values)
+    return features, colors
+
+
+def _write_unique_products(output, products, combinations, scaffold):
+    folder = output / "plasmids"
+    suffix = 2
+    while folder.exists():
+        folder = output / f"plasmids_{suffix}"
+        suffix += 1
+    folder.mkdir()
+    reports = []
+    for product in products:
+        names = [r["variant_name"] for r in product["rows"] if r["variant_name"]] or ["scaffold"]
+        slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", "__".join(names)).strip("._")[:140] or "plasmid"
+        path = folder / f"{product['id']}__{slug}.dna"
+        features, colors = _product_map_features(product["rows"], product["starts"], product["retained"], product["sequence"], scaffold)
+        _write_snapgene_map(path, product["sequence"], features,
+                            f"{product['id']} · {' / '.join(names)} · {len(product['aliases'])} equivalent combination(s)", colors)
+        if str(SeqIO.read(path, "snapgene").seq).upper() != product["sequence"]:
+            raise ValueError(f"Generated map did not round-trip: {path.name}")
+        reports.append({"id": product["id"], "path": str(path), "filename": path.name, "bp": len(product["sequence"]),
+                        "choices": product["choices"], "aliases": product["aliases"], "combinationCount": len(product["aliases"])})
+    paths = {p["id"]: str(Path(p["path"]).relative_to(output)) for p in reports}
+    _tsv(output / "plasmid_combinations.tsv", [{**row, "file": paths[row["plasmid_id"]]} for row in combinations])
+    _tsv(output / "plasmids.tsv", [{"plasmid_id": p["id"], "file": paths[p["id"]], "bp": p["bp"],
+                                   "combination_count": p["combinationCount"], "choices": json.dumps(p["choices"], ensure_ascii=False)} for p in reports])
+    return reports, folder
+
+
 def _run_plan_data(
     plan: dict[str, Any], scaffold_path: Path, output_root: str | Path,
     design_name: str, plan_reference: str,
@@ -1407,6 +1614,7 @@ def _run_plan_data(
                "assembly_position": fragment["assembly_position"], "option_index": fragment["option_index"],
                "variant_name": fragment["variant_name"], "annotation_kind": fragment.get("annotation_kind", ""),
                "core_source": fragment["core"], "native_core_feature": fragment.get("native_core_feature"), "native_window": fragment.get("native_window"), "variant_window": fragment.get("variant_window"), "is_backbone": bool(fragment.get("is_backbone")),
+               "full_variant_core": fragment.get("full_variant_core"),
                "left_junction": fragment["left_junction"], "left_fusion": left, "left_fusion_owner": left_owner,
                "right_junction": fragment["right_junction"], "right_fusion": right, "right_fusion_owner": right_owner,
                "core_bp": len(core), "five_prime_extension": five, "core_sequence": core, "three_prime_extension": three,
@@ -1421,7 +1629,9 @@ def _run_plan_data(
             primer_rows.append({"fragment_id": fragment_id, "name": row["name"], "forward_primer_5_to_3": five + core[:bases],
                                 "reverse_primer_5_to_3": reverse_complement(three) + reverse_complement(core[-bases:]),
                                 "annealing_bp": bases, "expected_amplicon_bp": len(full)})
-    # Validate reconstruction before creating ANY order or map outputs.
+    # Validate every combination before creating ANY order or map outputs.
+    _inherit_fragment_styles(fragment_rows, scaffold)
+    products, combinations = _unique_products(fragment_rows, scaffold)
     representative_rows = [row for row in fragment_rows if row["option_index"] == 1]
     map_variants = [{key: row[key] for key in ("element_name", "variant_name", "fragment_id")} for row in representative_rows]
     assembled_sequence, component_starts, retained = _assembled_circular_map(representative_rows)
@@ -1457,34 +1667,13 @@ def _run_plan_data(
     (output_dir / "synthesis_order.fasta").write_text("".join(fasta_records), encoding="utf-8")
     schematic_path = output_dir / "assembly_schematic.dna"
     schematic_junctions = _write_assembly_schematic(schematic_path, representative_rows, fragment_rows, scaffold, enzyme, padding, spacer)
-    map_features: list[dict[str, Any]] = []
     component_colors = _fragment_palette(representative_rows)
-    for index, row in enumerate(representative_rows):
-        color = component_colors[index]
-        kind = row.get("annotation_kind")
-        display_name = f"[{row['name']}]" if kind == "fixed" else f"{{{row['name']}}}" if kind == "variable" else row["name"]
-        map_features.append({
-            "name": display_name, "start": component_starts[index], "end": component_starts[index] + len(retained[index]) - 4,
-            "color": color, "note": f"{row['source']} fragment; selected fusions {row['left_fusion']} → {row['right_fusion']}",
-        })
     junction_locations: dict[str, tuple[int, int, int]] = {}
     for index, row in enumerate(representative_rows):
         position = len(assembled_sequence) - 4 if index == 0 else component_starts[index] - 4
         junction_locations[str(row["left_junction"])] = (position, (index - 1) % len(representative_rows), index)
-        map_features.append({"name": f"{row['left_junction']} · {row['left_fusion']}", "start": position, "end": position + 4,
-                             "color": _JUNCTION_COLOR, "note": "Selected Golden Gate fusion overhang"})
-    map_path = output_dir / "assembled_product_map.dna"
-    native_mapping = {}
-    for index, row in enumerate(representative_rows):
-        left_extension = 4 if row["left_fusion_owner"] == "extension" else 0
-        native_mapping.update({p: target % len(assembled_sequence) for p, target in
-                               _native_row_mapping(row, scaffold, component_starts[index] - 4 + left_extension).items()})
-    map_features.extend(_project_annotations(_snapgene_features_xml(scaffold.path), scaffold.sequence, native_mapping, require_complete=True))
-    _write_snapgene_map(map_path, assembled_sequence, map_features, f"{plan.get('project', design_name)} assembled Golden Gate product")
-    # Read-back check catches malformed binary output before exposing it to the user.
-    map_readback = SeqIO.read(map_path, "snapgene")
-    if str(map_readback.seq) != assembled_sequence:
-        raise ValueError("Generated SnapGene map did not round-trip correctly")
+    plasmids, plasmid_folder = _write_unique_products(output_dir, products, combinations, scaffold)
+    map_path = Path(plasmids[0]["path"])
     screencap_dir = output_dir / "junction_screencaps"
     screencap_dir.mkdir(exist_ok=True)
     screencaps = []
@@ -1533,8 +1722,10 @@ def _run_plan_data(
     plasmid_junction_figure = output_dir / "plasmid_with_junction_blowups.png"
     _write_plasmid_junction_figure(plasmid_junction_figure, representative_rows, component_starts, retained, assembled_sequence, junction_rows, junction_locations, joined_views)
     sequence_validation = "Exact circular match to uploaded plasmid with selected core replacements" if expected_target is not None else "Explicit-plan overlap assembly; not compared with the full scaffold"
-    (output_dir / "design.json").write_text(json.dumps({"plan": plan_reference, "scaffold": str(scaffold.path), "enzyme": enzyme, "junctions": junction_rows, "fragments": fragment_rows, "assembledMap": str(map_path), "schematicMap": str(schematic_path), "sequenceValidation": sequence_validation, "mapVariants": map_variants, "junctionScreencaps": screencaps, "plasmidJunctionFigure": str(plasmid_junction_figure), "automaticJunctions": automatic_junctions, "junctionJoinedViews": joined_views, "junctionJoinedOverview": str(joined_overview_path), "junctionCleanViews": clean_views, "junctionCleanOverview": str(overview_path), "warnings": warnings}, indent=2) + "\n", encoding="utf-8")
-    return {"ok": True, "outputDir": str(output_dir), "project": plan.get("project", design_name), "scaffoldBp": len(scaffold.sequence), "assembledBp": len(assembled_sequence), "enzyme": enzyme.get("name", "custom"), "junctions": junction_rows, "fragments": [{key: row[key] for key in ("fragment_id", "name", "element_name", "assembly_position", "variant_name", "source", "left_fusion", "right_fusion", "final_fragment_bp")} for row in fragment_rows], "assembledMap": str(map_path), "schematicMap": str(schematic_path), "sequenceValidation": sequence_validation, "mapVariants": map_variants, "junctionScreencaps": screencaps, "plasmidJunctionFigure": str(plasmid_junction_figure), "automaticJunctions": automatic_junctions, "junctionJoinedViews": joined_views, "junctionJoinedOverview": str(joined_overview_path), "junctionCleanViews": clean_views, "junctionCleanOverview": str(overview_path), "warnings": warnings}
+    library = {"plasmids": plasmids, "plasmidCount": len(plasmids), "combinationCount": len(combinations), "plasmidFolder": str(plasmid_folder)}
+    report = {**library, "plan": plan_reference, "scaffold": str(scaffold.path), "enzyme": enzyme, "junctions": junction_rows, "fragments": fragment_rows, "assembledMap": str(map_path), "schematicMap": str(schematic_path), "sequenceValidation": sequence_validation, "mapVariants": map_variants, "junctionScreencaps": screencaps, "plasmidJunctionFigure": str(plasmid_junction_figure), "automaticJunctions": automatic_junctions, "junctionJoinedViews": joined_views, "junctionJoinedOverview": str(joined_overview_path), "junctionCleanViews": clean_views, "junctionCleanOverview": str(overview_path), "warnings": warnings}
+    (output_dir / "design.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    return {**report, "ok": True, "outputDir": str(output_dir), "project": plan.get("project", design_name), "scaffoldBp": len(scaffold.sequence), "assembledBp": len(assembled_sequence), "enzyme": enzyme.get("name", "custom"), "fragments": [{key: row[key] for key in ("fragment_id", "name", "element_name", "assembly_position", "variant_name", "source", "left_fusion", "right_fusion", "final_fragment_bp")} for row in fragment_rows]}
 
 
 def run_plan(plan_path: str | Path, output_root: str | Path) -> dict[str, Any]:

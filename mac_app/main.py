@@ -36,7 +36,7 @@ from mac_app import local_updates, github_updates
 
 
 APP_NAME = "CloningCompanion"
-APP_VERSION = "1.4.0"
+APP_VERSION = "1.5.0"
 PROJECT_EXTENSION = "plasmidverify"
 SEQUENCE_TYPES = ("Sequence files (*.fasta;*.fa;*.fna;*.fas;*.dna)", "All files (*.*)")
 INSERT_TYPES = (

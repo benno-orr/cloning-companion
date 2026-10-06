@@ -5,8 +5,8 @@ SCRIPT_DIR="${0:A:h}"
 PROJECT_DIR="${SCRIPT_DIR:h}"
 PYTHON_BIN="${PYTHON_BIN:-${PROJECT_DIR}/.venv/bin/python}"
 APP_PATH="${PROJECT_DIR}/dist/CloningCompanion.app"
-DMG_STAGE="${PROJECT_DIR}/build/dmg-root-1.4.0"
-DMG_PATH="${PROJECT_DIR}/dist/CloningCompanion-1.4.0.dmg"
+DMG_STAGE="${PROJECT_DIR}/build/dmg-root-1.5.0"
+DMG_PATH="${PROJECT_DIR}/dist/CloningCompanion-1.5.0.dmg"
 SIGN_IDENTITY="${SIGN_IDENTITY:-}"
 
 if [[ ! -x "${PYTHON_BIN}" ]]; then

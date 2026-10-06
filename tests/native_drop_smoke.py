@@ -84,6 +84,12 @@ def main():
                 window.evaluate_js("document.getElementById('modal-close').click()")
                 assert window.evaluate_js("document.getElementById('modal-backdrop').classList.contains('hidden')")
                 print('PASS: in-app update button → native check → version/status dialog', flush=True)
+                designed = api.run_annotated_golden_gate_design(str(source), str(Path(directory)/'outputs'))
+                assert designed['ok'] and designed['plasmidCount'] == 1
+                window.evaluate_js('renderDesignResults(%s)' % json.dumps(designed))
+                assert window.evaluate_js("document.querySelectorAll('[data-plasmid]').length") == 1
+                assert 'Assembled plasmids' in window.evaluate_js("document.getElementById('design-results').innerText")
+                print('PASS: unique SnapGene outputs appear in app with per-file actions', flush=True)
         except Exception as exc:
             errors.append(exc)
             print('FAIL:', repr(exc), flush=True)

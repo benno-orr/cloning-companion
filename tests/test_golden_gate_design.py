@@ -315,6 +315,11 @@ def test_pasted_libraries_export_one_order_per_option_not_per_combination(tmp_pa
     assert [row["variant_name"] for row in result["mapVariants"]] == ["", "parental", "WT"]
     report = json.loads((output / "design.json").read_text())
     assert report["mapVariants"] == result["mapVariants"]
+    assert result["plasmidCount"] == result["combinationCount"] == 4
+    assert len(list(Path(result["plasmidFolder"]).glob('*.dna'))) == 4
+    assert {str(SeqIO.read(p['path'], 'snapgene').seq) for p in result['plasmids']} == {
+        'AAAAAACACC' + scfv + 'GCCT' + tail + 'TGAA'
+        for scfv in ('ATGGCC', 'ATGAGCGCC') for tail in ('GGT', 'GCGGCG')}
     assert "variants" not in plan["fragments"][1]  # Input plan remains untouched.
     with pytest.raises(ValueError, match="Unknown variable fragment"):
         run_annotated_snapgene_design(scaffold_path, tmp_path, variable_texts={"bb": "x,ATG"})
@@ -428,3 +433,100 @@ def test_fragment_palette_uses_backbone_relative_hsv_and_wraps_hue():
     assert _display_color("#ffbf80") == "#ffbf80"
     assert _display_color("gray - 50") == "#a0a0a0"
     assert _display_color("red") == "#ff0000"
+
+
+def test_unique_plasmids_keep_complete_linker_all_combinations_and_aliases(tmp_path):
+    path, source = _native_linker_map(tmp_path)
+    variables = [f for f in plan_from_annotated_snapgene(path)['fragments'] if f.get('annotation_kind') == 'variable']
+    texts = {variables[0]['id']: 'one,ATGGCC\nalias,ATGGCC\nlonger,ATGAGCGCC',
+             variables[1]['id']: 'tail/1,GCGGCG\ntail?1,GCTGCT'}
+    result = run_annotated_snapgene_design(path, tmp_path/'out', variable_texts=texts)
+    assert result['plasmidCount'] == 4 and result['combinationCount'] == 6
+    assert sorted(p['combinationCount'] for p in result['plasmids']) == [1, 1, 2, 2]
+    assert len({p['filename'] for p in result['plasmids']}) == 4
+    expected = {source[:28]+a+'GGATCTGGATCTGGA'+b for a in ('ATGGCC','ATGAGCGCC') for b in ('GCGGCG','GCTGCT')}
+    from plasmid_verify.golden_gate_design import _circular_identity
+    assert {_circular_identity(str(SeqIO.read(p['path'],'snapgene').seq)) for p in result['plasmids']} == {_circular_identity(s) for s in expected}
+    with (Path(result['outputDir'])/'plasmid_combinations.tsv').open() as handle:
+        records = list(csv.DictReader(handle, delimiter='\t'))
+    assert len(records) == 6
+    assert all((Path(result['outputDir'])/r['file']).exists() for r in records)
+    repeated = run_annotated_snapgene_design(path, tmp_path/'out', variable_texts=texts)
+    assert result['plasmidFolder'] != repeated['plasmidFolder']
+    assert all(Path(p['path']).exists() for p in result['plasmids'])
+
+
+def test_circular_identity_handles_origins_and_reverse_complements():
+    from plasmid_verify.golden_gate_design import _circular_identity, reverse_complement
+    import itertools
+    for chars in itertools.product('ACGT', repeat=5):
+        sequence=''.join(chars)
+        variants=[s[i:]+s[:i] for s in (sequence, reverse_complement(sequence)) for i in range(len(sequence))]
+        assert _circular_identity(sequence) == min(variants)
+
+
+def test_library_size_limit_is_explicit_not_silent():
+    from plasmid_verify.golden_gate_design import _unique_products
+    with pytest.raises(ValueError, match='10,201 combinations'):
+        _unique_products([{'assembly_position': i} for i in range(2) for _ in range(101)], None)
+
+
+def test_input_core_and_strand_colors_survive_each_plasmid(tmp_path):
+    from plasmid_verify.golden_gate_design import _snapgene_features_xml, _source_strand_colors
+    path, sequence = _native_linker_map(tmp_path)
+    features = _snapgene_features_xml(path)
+    custom = {'[Backbone]':'#112233','{scFv}':'#ab4321','{TM-tail}':'#7788aa'}
+    for feature in features:
+        if feature.get('name') in custom:
+            for segment in feature.findall('Segment'):
+                segment.set('color', custom[feature.get('name')])
+    colors=Element('StrandColors')
+    top=SubElement(colors,'TopStrand')
+    SubElement(top,'ColorRange',{'range':'0..33','colors':'#123456'})
+    SubElement(top,'ColorRange',{'range':'34..54','colors':'#00cc22'})
+    SubElement(SubElement(colors,'BottomStrand'),'ColorRange',{'range':'0..54','colors':'#aa00cc'})
+    _write_snapgene_map(path, sequence, [{'xml': f} for f in features], 'Colored input', colors)
+    variables=[f for f in plan_from_annotated_snapgene(path)['fragments'] if f.get('annotation_kind')=='variable']
+    result=run_annotated_snapgene_design(path,tmp_path/'out',variable_texts={variables[0]['id']:'native,ATGGCC\nlong,ATGAGCGCC'})
+    for product in result['plasmids']:
+        output=Path(product['path'])
+        exported=_snapgene_features_xml(output)
+        selected=product['choices'][1]['variant_name']
+        feature=next(f for f in exported if f.get('name')=='{'+selected+'}')
+        assert feature.find('Segment').get('color')=='#ab4321'
+        dna=str(SeqIO.read(output,'snapgene').seq)
+        palette=_source_strand_colors(output,len(dna))
+        assert set(palette['BottomStrand'])=={'#aa00cc'}
+        # Both different-length products retain exact strand colors for linker.
+        start=(dna+dna).index('GGATCTGGATCTGGA')
+        assert [palette['TopStrand'][(start+i)%len(dna)] for i in range(15)]==['#00cc22']*15
+        assert set(palette['TopStrand'])=={'#123456','#00cc22'}
+        native_tail=next(f for f in exported if f.get('name')=='{TM-tail}')
+        assert native_tail.find('Segment').get('color')=='#7788aa'
+
+
+def test_nonrepresentative_failure_prevents_all_outputs(tmp_path, monkeypatch):
+    import plasmid_verify.golden_gate_design as design
+    path, _ = _native_linker_map(tmp_path)
+    variable=next(f for f in plan_from_annotated_snapgene(path)['fragments'] if f.get('annotation_kind')=='variable')
+    real=design._assembled_circular_map
+    def assembled(rows):
+        dna, starts, retained=real(rows)
+        return (dna+'A' if any(r.get('variant_name')=='second' for r in rows) else dna),starts,retained
+    monkeypatch.setattr(design,'_assembled_circular_map',assembled)
+    with pytest.raises(ValueError, match='no outputs written'):
+        run_annotated_snapgene_design(path,tmp_path/'out',variable_texts={variable['id']:'first,ATGGCC\nsecond,ATGAGC'})
+    assert not (tmp_path/'out').exists()
+
+
+def test_eight_by_six_library_exports_forty_eight_plasmids(tmp_path):
+    path, _ = _native_linker_map(tmp_path)
+    variables = [f for f in plan_from_annotated_snapgene(path)['fragments'] if f.get('annotation_kind') == 'variable']
+    result = run_annotated_snapgene_design(path, tmp_path/'out', variable_texts={
+        variables[0]['id']: '\n'.join(f'scFv-{i},ATG'+ 'GCC'*i for i in range(1,9)),
+        variables[1]['id']: '\n'.join(f'tail-{i},'+'GCG'*i for i in range(1,7)),
+    })
+    assert result['plasmidCount'] == result['combinationCount'] == 48
+    assert len(list(Path(result['plasmidFolder']).glob('*.dna'))) == 48
+    assert len({str(SeqIO.read(p['path'],'snapgene').seq) for p in result['plasmids']}) == 48
+    assert len(result['fragments']) == 1+8+6  # Orders are still per fragment, not per plasmid.

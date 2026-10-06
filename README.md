@@ -42,7 +42,7 @@ Outputs:
 
 ```text
 dist/CloningCompanion.app
-dist/CloningCompanion-1.4.0.dmg
+dist/CloningCompanion-1.5.0.dmg
 ```
 
 When `SIGN_IDENTITY` is omitted, the build script uses an ad-hoc signature suitable for local testing. For public distribution, use a Developer ID Application certificate:
@@ -109,6 +109,21 @@ T02_insert_01.fasta
 The inferred pairing and multi-insert order are editable before the run. SnapGene files are read for their sequence; feature annotations are not imported. Generated targets still export as FASTA.
 
 ## Assembly models and design
+
+### Unique assembled SnapGene products
+
+The design workflow exports every combination of variable-fragment options (up to 10,000 combinations per run).
+Each distinct double-stranded circular DNA sequence gets one annotated `.dna` file in the reported plasmid folder.
+Equivalent rotations, reverse complements, and identically sequenced aliases share a file. `plasmids.tsv` lists
+unique products, and `plasmid_combinations.tsv` maps every option combination to its file. The app lists the files
+under **Assembled plasmids**, with individual **Show file** buttons. A rerun preserves previous plasmid folders.
+Order fragments remain one per named option, not one per plasmid. Schematic graphics depict the first combination.
+
+Native feature colors and top/bottom DNA-strand color ranges take precedence over the default HSV palette.
+Unchanged annotations are projected into each product; changed variant cores inherit their parent fragment’s colors
+without inheriting stale protein translations. New variant DNA uses the dominant parent-core color independently
+for each strand; retained linker/flank bases keep their original colors. HSV (30° × n, 50%, 100%), backbone n=0,
+is used only where no input color is available. Every product is read back and checked after writing.
 
 - **Gibson:** the first and last 15 nt of each insert (configurable) are located in the circular parent in either orientation. The shortest bracketed parental interval is replaced by the full insert. Multi-insert assemblies are applied in the displayed order.
 - **Golden Gate:** supports BsaI, BsmBI/Esp3I, BbsI, SapI, and AarI. The app finds an inward-facing site pair in the parent and each insert, removes recognition sites and spacers, checks all fusion overhangs, and produces the scarless target.
