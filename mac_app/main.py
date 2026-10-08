@@ -39,7 +39,7 @@ from mac_app import local_updates, github_updates, design_library
 
 
 APP_NAME = "CloningCompanion"
-APP_VERSION = "1.8.1"
+APP_VERSION = "1.8.2"
 PROJECT_EXTENSION = "plasmidverify"
 SEQUENCE_TYPES = ("Sequence files (*.fasta;*.fa;*.fna;*.fas;*.dna)", "All files (*.*)")
 INSERT_TYPES = (
@@ -108,7 +108,16 @@ def _design_previews(result: Dict[str, Any]) -> Dict[str, Any]:
         graphics.append({"title": title, "group": group, "path": str(path), "sourcePath": str(source_path or path),
                          "src": f"data:{mime};base64," + base64.b64encode(path.read_bytes()).decode("ascii")})
     junctions = {row["junction_id"]: row["selected_fusion"] for row in result.get("junctions", [])}
-    if result.get("plasmidJunctionFigure"):
+    if result.get("interactiveMap"):
+        add(result["interactiveMap"]["path"], "Linear map", "Linear map")
+        map_graphic = graphics[-1]
+        map_graphic["junctions"] = []
+        for junction in result["interactiveMap"]["junctions"]:
+            detail_index = len(graphics)
+            add(junction["detailPath"], "Junction " + junction["label"], "Junction details")
+            map_graphic["junctions"].append({key: value for key, value in junction.items() if key != "detailPath"})
+            map_graphic["junctions"][-1]["graphicIndex"] = detail_index
+    elif result.get("plasmidJunctionFigure"):
         add(result["plasmidJunctionFigure"], "Linear map", "Linear map")
     for path in result.get("junctionScreencaps", []):
         path = Path(path)

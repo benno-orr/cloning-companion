@@ -1,0 +1,25 @@
+Generated with the built-in image generation tool on 2026-10-08.
+CURRENT FINAL: thicker arrow, thin connecting line retained, white background.
+Built-in image edit prompt (supersedes prior versions below):
+Edit this logo: make ONLY the broad silver-gray C-shaped arrow about twice as thick radially, with a proportionately larger rounded triangular arrowhead at upper right and rounded tail at lower right. Keep the outer circle size and framing approximately unchanged by expanding the arrow mainly inward. Crucially KEEP the thin dark curved connecting line on the right completing the circle, and keep this line thin at its current thickness. Keep the arrow clockwise, its cartoon silver shading and highlights, charcoal outline, exact overall circular geometry, centered square composition and solid white background and white center. No new elements or text. The requested change is a thicker silver arrow, NOT a thicker connecting line, and do NOT remove the connecting line.
+
+FINAL SELECTION: user reselected the original slimmer arrow WITH connecting line, on white.
+Latest prompt (supersedes all below; built-in image editing):
+Edit the supplied image ONLY to place it on a solid pure white opaque background (#FFFFFF), including the center. Preserve the entire logo exactly as supplied: the relatively slim silver-gray C-shaped cartoon arrow, its small upper-right clockwise arrowhead, lower-right rounded tail, existing shading and outlines, AND THE THIN DARK CURVED CONNECTING LINE ON THE RIGHT completing the circular plasmid outline. The connecting line is required in this version: do not remove it. Do not thicken, redraw or change the arrow proportions, orientation, scale or placement. No added text, faces, objects, border or shadows. Square white canvas. No transparency.
+
+Latest correction (supersedes earlier prompts; built-in image editing):
+Edit the supplied Cloning Companion logo. Make the silver-gray C-shaped arrow approximately TWICE as thick as in the input, with a chunky rounded cartoon appearance, keeping the overall outside dimensions, clockwise upper-right arrowhead and lower-right rounded tail. The entire RIGHT-HAND GAP between arrowhead and tail must be completely EMPTY WHITE: remove any black or gray line or arc that could close the C into a circle. It must unmistakably read as a capital C. Use a SOLID PURE WHITE opaque background (#FFFFFF), including the center and the open right-hand gap; no transparency, checkerboard, black backdrop or shadows in the gap. Preserve the clean charcoal outline around the actual thick C shape only, soft silver shading and highlights. Center on square white canvas with even padding. No additional elements, faces or text. This is a thick C, not an O or a closed circular plasmid.
+
+Final correction prompt (built-in image editing):
+Edit the supplied logo. It is supposed to be the letter C formed by a cartoon plasmid arrow, NOT a closed circle. Remove the entire thin dark connector on the right, leaving a large fully transparent opening between the upper-right arrowhead and lower-right rounded tail. Preserve the broad silver-gray C-shaped arc, its clockwise arrowhead, its rounded cartoon shading and charcoal outline. The silhouette must read unmistakably as a capital C, open on the right. Keep the same square centered composition and padding. No new elements, no text, no face, no line bridging the opening. Background and center remain genuinely transparent.
+
+Original generation prompt follows for provenance; the correction above supersedes the closed-circle requirement.
+The user supplied a circular plasmid-map screenshot as the shape reference.
+
+Use case: logo-brand.
+Asset type: Cloning Companion desktop app icon and sidebar logo.
+Input image 1 is the reference for the shape, not an image to reproduce literally.
+Primary request: a polished cartoony version of this circular plasmid map. Preserve its distinctive single long clockwise arrow: beginning near five o'clock, running around the bottom, left and top, with one clear arrowhead at about two o'clock. A much thinner curved dark gray connector completes the circle on the right from the arrowhead back to its tail.
+Style: friendly rounded cartoon illustration, bold clean charcoal outline, gently inflated soft silver-gray arrow with restrained highlights and soft shading. Thicken the broad arrow enough to read as a small app icon, keep the connector noticeably thinner. Simple and elegant.
+Composition: one centered circular mark, square canvas, generous even outer padding, transparent background and transparent empty center. No panel or backdrop.
+Constraints: no face, no additional arrows, no DNA helix, no tick marks, no text whatsoever, no plasmid name, no base-pair count, no watermark. Preserve near-perfect circular geometry and the reference arrow's direction. Actual alpha transparency.

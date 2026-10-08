@@ -90,6 +90,20 @@ def main():
                     project_state={'projectName': 'Saved smoke project', 'armLength': 24})
                 assert designed['ok'] and designed['plasmidCount'] == 1
                 window.evaluate_js('renderDesignResults(%s)' % json.dumps(designed))
+                window.evaluate_js("showView('design-results')")
+                assert window.evaluate_js("document.querySelector('.junction-popup').hidden")
+                assert window.evaluate_js("document.querySelectorAll('.junction-hotspot').length") == 2
+                window.evaluate_js("document.querySelector('.junction-hotspot').dispatchEvent(new MouseEvent('mouseenter'))")
+                assert not window.evaluate_js("document.querySelector('.junction-popup').hidden")
+                assert window.evaluate_js("document.querySelectorAll('.junction-popup:not([hidden])').length") == 1
+                assert window.evaluate_js("document.querySelector('.junction-popup').getBoundingClientRect().bottom < document.querySelector('.junction-map').getBoundingClientRect().top")
+                window.evaluate_js("document.querySelector('.junction-stage').dispatchEvent(new MouseEvent('mouseleave'))")
+                assert window.evaluate_js("document.querySelector('.junction-popup').hidden")
+                window.evaluate_js("document.querySelectorAll('.junction-hotspot')[1].focus()")
+                assert not window.evaluate_js("document.querySelector('.junction-popup').hidden")
+                window.evaluate_js("document.querySelector('.junction-stage').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))")
+                assert window.evaluate_js("document.querySelector('.junction-popup').hidden")
+                print('PASS: junctions hidden initially; hover/focus show one detail above map; leave/Escape dismiss', flush=True)
                 assert window.evaluate_js("document.querySelectorAll('[data-plasmid]').length") == 1
                 assert 'Assembled plasmids' in window.evaluate_js("document.getElementById('design-results').innerText")
                 assert not (Path(directory) / 'outputs').exists()
@@ -132,6 +146,8 @@ def main():
                 assert window.evaluate_js('currentProjectState().goldenGateDesign.savedRunId') == designed['savedRun']['id']
                 print('PASS: saved project → restored map, settings and outputs → SnapGene and order ZIP downloads', flush=True)
         except Exception as exc:
+            import traceback
+            traceback.print_exc()
             errors.append(exc)
             print('FAIL:', repr(exc), flush=True)
         finally:

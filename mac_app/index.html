@@ -70,6 +70,14 @@
     .graphic-card { margin:0; background:#fff; border:1px solid var(--line); border-radius:9px; overflow:hidden; }
     .graphic-card figcaption { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:11px 14px; font-size:12px; color:var(--ink); }
     .graphic-card img { display:block; width:100%; height:auto; cursor:zoom-in; }
+    .junction-stage { padding-top:290px; position:relative; }
+    .junction-map { position:relative; }
+    .junction-hotspot { position:absolute; transform:translateX(-50%); min-width:16px; width:2.2%; padding:0; border:0; border-radius:5px; background:transparent; cursor:crosshair; }
+    .junction-hotspot:hover,.junction-hotspot:focus-visible { background:rgba(36,111,80,.12); outline:2px solid var(--green); }
+    .junction-popup { position:absolute; bottom:calc(100% + 8px); left:2%; width:96%; height:270px; z-index:10; background:white; border:1px solid var(--line); border-radius:10px; box-shadow:0 7px 24px #18382c15; padding:8px; box-sizing:border-box; }
+    .junction-popup[hidden] { display:none; }
+    .graphic-card .junction-popup img { width:100%; height:100%; object-fit:contain; }
+    .junction-hint { position:absolute; top:16px; left:16px; right:16px; color:var(--muted); font-size:12px; }
     .graphic-lightbox { width:94vw; max-width:none; height:90vh; border:0; border-radius:12px; padding:0; color:var(--ink); }
     .graphic-lightbox::backdrop { background:rgba(14,31,24,.7); }
     .graphic-lightbox header { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:12px 18px; border-bottom:1px solid var(--line); }
@@ -271,7 +279,7 @@
   <aside class="sidebar">
     <div class="brand">
       <div class="brand-mark">
-        <img src="assets/CloningCompanion-logo.png" alt="Smiling circular plasmid map">
+        <img src="assets/CloningCompanion-logo.png" alt="Cartoon silver C-shaped plasmid arrow">
       </div>
       <div><strong>CloningCompanion</strong><small>From sequence to certainty</small></div>
     </div>
@@ -434,18 +442,40 @@ let updateBusy=false;
 let activeView='design';
 const workspaceViews={design:'design',verification:'setup'};
 
+function junctionMapMarkup(graphic,index){
+  return `<div class="junction-stage"><div class="junction-hint">Hover a junction marker to view its sequence above the map. Keyboard focus or a tap works too.</div><div class="junction-map"><img src="${esc(graphic.src)}" alt="${esc(graphic.title)}" data-graphic="${index}"><div class="junction-popup" hidden><img alt="Junction sequence detail"></div>${graphic.junctions.map(j=>`<button class="junction-hotspot" aria-label="Junction ${esc(j.label)}: ${esc(j.id)}" aria-expanded="false" data-junction-detail="${j.graphicIndex}" style="left:${j.xPercent}%;top:${j.topPercent}%;height:${j.heightPercent}%"></button>`).join('')}</div></div>`;
+}
+function bindJunctionHovers(gallery){
+  gallery.querySelectorAll('.junction-stage').forEach(stage=>{
+    const popup=stage.querySelector('.junction-popup'),image=popup.querySelector('img'),hint=stage.querySelector('.junction-hint');
+    const buttons=[...stage.querySelectorAll('[data-junction-detail]')];
+    function hide(){popup.hidden=true;hint.hidden=false;buttons.forEach(b=>b.setAttribute('aria-expanded','false'));}
+    function show(button){const graphic=designGraphics[Number(button.dataset.junctionDetail)];if(!graphic)return;image.src=graphic.src;image.alt=graphic.title;image.onclick=()=>openGraphic(Number(button.dataset.junctionDetail));popup.hidden=false;hint.hidden=true;buttons.forEach(b=>b.setAttribute('aria-expanded',String(b===button)));}
+    buttons.forEach(button=>{
+      button.onmouseenter=()=>show(button);
+      button.onfocus=()=>show(button);
+      button.onclick=()=>show(button);
+      button.onmouseleave=event=>{if(!popup.contains(event.relatedTarget)&&document.activeElement!==button)hide();};
+    });
+    stage.onmouseleave=hide;
+    stage.addEventListener('focusout',event=>{if(!stage.contains(event.relatedTarget))hide();});
+    stage.addEventListener('keydown',event=>{if(event.key==='Escape'){hide();event.stopPropagation();}});
+  });
+}
+function openGraphic(index){
+  const graphic=designGraphics[index];
+  document.getElementById('graphic-lightbox-title').textContent=graphic.title;
+  const enlarged=document.getElementById('graphic-lightbox-image');enlarged.src=graphic.src;enlarged.classList.remove('actual-size');
+  document.getElementById('graphic-zoom').textContent='Actual size';document.getElementById('graphic-lightbox').showModal();
+}
 function renderGraphicGallery(group='Linear map'){
   const gallery=document.getElementById('graphic-gallery');if(!gallery)return;
   if(!designGraphics.some(graphic=>graphic.group===group))group=designGraphics[0]?.group;
-  gallery.innerHTML=designGraphics.map((graphic,index)=>graphic.group===group?`<figure class="graphic-card"><figcaption><strong>${esc(graphic.title)}</strong><button class="button" data-graphic-file="${index}">Download PNG</button></figcaption><img src="${esc(graphic.src)}" alt="${esc(graphic.title)}" data-graphic="${index}" loading="lazy"></figure>`:'').join('');
+  gallery.innerHTML=designGraphics.map((graphic,index)=>graphic.group===group?`<figure class="graphic-card"><figcaption><strong>${esc(graphic.title)}</strong><button class="button" data-graphic-file="${index}">Download PNG</button></figcaption>${graphic.junctions?junctionMapMarkup(graphic,index):`<img src="${esc(graphic.src)}" alt="${esc(graphic.title)}" data-graphic="${index}" loading="lazy">`}</figure>`:'').join('');
+  bindJunctionHovers(gallery);
   if(group==='Fragment ends')gallery.insertAdjacentHTML('afterbegin','<p style="margin:0;color:var(--muted);font-size:12px;line-height:1.6">Separate fragment ends before digestion. Gray bases are removed; stepped lines show the cuts. Each view includes 12 bases of each flanking core and any intervening linker.</p>');
   document.querySelectorAll('[data-graphic-group]').forEach(button=>button.classList.toggle('active',button.dataset.graphicGroup===group));
-  gallery.querySelectorAll('[data-graphic]').forEach(image=>image.onclick=()=>{
-    const graphic=designGraphics[Number(image.dataset.graphic)];
-    document.getElementById('graphic-lightbox-title').textContent=graphic.title;
-    const enlarged=document.getElementById('graphic-lightbox-image');enlarged.src=graphic.src;enlarged.classList.remove('actual-size');
-    document.getElementById('graphic-zoom').textContent='Actual size';document.getElementById('graphic-lightbox').showModal();
-  });
+  gallery.querySelectorAll('[data-graphic]').forEach(image=>image.onclick=()=>openGraphic(Number(image.dataset.graphic)));
   gallery.querySelectorAll('[data-graphic-file]').forEach(button=>button.onclick=()=>downloadDesignFile(designGraphics[Number(button.dataset.graphicFile)].downloadId));
 }
 
@@ -732,7 +762,7 @@ window.nativeExportFinished=result=>{if(result.ok)toast(`Saved ${result.path.spl
 async function exportKind(kind){try{const result=await pywebview.api[kind]();window.nativeExportFinished(result)}catch(e){toast(String(e),true)}}
 
 const modalContent={
-  about:{title:'About CloningCompanion',body:`<div class="about-center"><div class="brand-mark about-icon"><img src="assets/CloningCompanion-logo.png" alt="Smiling circular plasmid map"></div><h3>CloningCompanion <span id="about-version"></span></h3><p>Whole-plasmid verification plus scaffold-aware Golden Gate fragment design.</p><p>Sequence data is processed entirely on this Mac.</p></div>`},
+  about:{title:'About CloningCompanion',body:`<div class="about-center"><div class="brand-mark about-icon"><img src="assets/CloningCompanion-logo.png" alt="Cartoon silver C-shaped plasmid arrow"></div><h3>CloningCompanion <span id="about-version"></span></h3><p>Whole-plasmid verification plus scaffold-aware Golden Gate fragment design.</p><p>Sequence data is processed entirely on this Mac.</p></div>`},
   help:{title:'CloningCompanion Help',body:`<h3>Verification workspace</h3><p>Add inserts first. In the assembly spreadsheet, assign a FASTA or SnapGene <b>.dna</b> backbone in every row; drag the green corner to fill it into other rows. Then add WPS files.</p><h3>Golden Gate design workspace</h3><p>Start with one annotated SnapGene <b>.dna</b> map. Feature labels in <b>[square brackets]</b> are fixed fragment cores; labels in <b>{curly brackets}</b> are variable fragment cores. The core that overlaps <b>pUC ori</b> or <b>ori pUC</b> is automatically the backbone. The map order is assembly order. Add exactly one <b>(parenthesized)</b> or <b>-</b> feature touching each boundary between cores to mark the allowed placement range. Other ordinary annotations are ignored. The app searches each highlighted region for compatible 4 bp fusions and writes <b>junctions.tsv</b>, <b>candidate_options.tsv</b>, <b>fragments.tsv</b>, <b>assembly_recipe.tsv</b>, <b>pcr_primers.tsv</b>, and <b>synthesis_order.fasta</b>.</p><h3>Verification Golden Gate</h3><p>For sequence QC, insert sequences must include inward-facing Type IIS sites and matching fusion overhangs. The assigned backbone must contain a matching destination cassette.</p>`}
 };
 window.showModal=kind=>{const content=modalContent[kind];document.getElementById('modal-title').textContent=content.title;document.getElementById('modal-body').innerHTML=content.body;document.getElementById('modal-backdrop').classList.remove('hidden');if(kind==='about')document.getElementById('about-version').textContent=`${window.appVersion||'1.0.0'}`};

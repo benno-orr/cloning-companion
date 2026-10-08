@@ -97,9 +97,13 @@ def test_design_library_persists_runs_without_export_folders(tmp_path, monkeypat
     assert first['savedRun']['title'] == first['projectState']['projectName']
     assert len(api.list_saved_designs()['runs']) == 2
     assert not api.download_design_file(old_id)['ok']
-    assert len(first["graphics"]) == 3  # linear map and two fragment-end views
+    assert len(first["graphics"]) == 5  # map, two hover details, two fragment ends
     assert all(graphic["src"].startswith("data:image/") for graphic in first["graphics"])
-    assert {graphic["group"] for graphic in first["graphics"]} == {"Linear map", "Fragment ends"}
+    assert {graphic["group"] for graphic in first["graphics"]} == {"Linear map", "Fragment ends", "Junction details"}
+    markers = first['graphics'][0]['junctions']
+    assert len(markers) == 2
+    assert all(0 < marker['xPercent'] < 100 for marker in markers)
+    assert all(first['graphics'][marker['graphicIndex']]['group'] == 'Junction details' for marker in markers)
     assert all(g['downloadId'] in api._design_files for g in second['graphics'])
     assert {'synthesis_order.tsv', 'synthesis_order.fasta', 'pcr_primers.tsv', 'assembly_schematic.dna'} <= {d['filename'] for d in second['downloads']}
     # Cancelling a download creates nothing and keeps it available.

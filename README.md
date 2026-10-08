@@ -42,7 +42,7 @@ Outputs:
 
 ```text
 dist/CloningCompanion.app
-dist/CloningCompanion-1.8.1.dmg
+dist/CloningCompanion-1.8.2.dmg
 ```
 
 When `SIGN_IDENTITY` is omitted, the build script uses an ad-hoc signature suitable for local testing. For public distribution, use a Developer ID Application certificate:
@@ -154,7 +154,7 @@ For each `{variable core}`, paste a list of named core DNA sequences in its vari
 
 If no project name is entered (including whitespace-only input), version 1.8.1 uses a local date/time stamp such as `2026-10-06 16-23-45`. Importing a map no longer fills the project name with its filename. The generated name is stored with the project and retained on reopening and subsequent runs; explicit names are preserved.
 
-The **Linear map** view displays a to-scale linearized plasmid with alternating upper/lower junction blowups, downloadable as `plasmid_with_junction_blowups.png`. **Fragment ends** shows the separate pre-digestion ends. Click an image to enlarge it or view it at actual size; each has a PNG download button.
+Starting in 1.8.2, the **Linear map** shows no junction blowups initially. Hover a numbered junction marker (or focus it with the keyboard or tap it) to reveal one sequence panel, always above the map. Leaving the map or pressing Escape dismisses it. Newly generated projects retain these interactive previews when saved and reopened. Rerun older saved designs to generate the interactive map. The plain map is downloadable as `linear_map.png`; the full static figure remains in the graphics ZIP as `plasmid_with_junction_blowups.png`. **Fragment ends** shows the separate pre-digestion ends. Click an image to enlarge it or view it at actual size; each has a PNG download button. Version 1.8.2 also includes the approved thick silver plasmid-arrow logo with a thin connecting line on white.
 
 Regions labelled `-` are fixed scaffold-derived sequence, never user-supplied library elements. Paste variable cores without any `-` bases, including marked portions overlapping a core label. The designer restores these bases automatically and distributes them between the two flanking fragments around the chosen four-base overlap. `automatic_junction_bases.tsv` and the in-app report show the full region and each fragment-end contribution. The assembled region contains every native base once. Older pasted lists containing overlapping `-` bases must have those marked bases removed before reuse.
 

@@ -1162,7 +1162,7 @@ def _write_junction_screencap(
     image.save(path, "PNG")
 
 
-def _write_plasmid_junction_figure(path, rows, starts, retained, sequence, junction_rows, junction_locations, joined_views):
+def _write_plasmid_junction_figure(path, rows, starts, retained, sequence, junction_rows, junction_locations, joined_views, interactive=False):
     """To-scale linearized plasmid with alternating sequence-detail callouts."""
     length = len(sequence)
     backbone = next((i for i, row in enumerate(rows) if row.get("is_backbone")), 0)
@@ -1178,6 +1178,8 @@ def _write_plasmid_junction_figure(path, rows, starts, retained, sequence, junct
     map_y = 120 + top_height + 140
     bottom_y = map_y + 160
     height = bottom_y + bottom_height + 140
+    if interactive:
+        width, height, map_y = 2000, 430, 220
     figure = Image.new("RGB", (width, height), "white")
     draw = ImageDraw.Draw(figure)
     colors = _fragment_palette(rows)
@@ -1186,9 +1188,11 @@ def _write_plasmid_junction_figure(path, rows, starts, retained, sequence, junct
     def x(base):
         return map_left + base / length * (map_right - map_left)
     draw.text((margin, 24), f"Assembled plasmid · {length:,} bp", font=_font(35), fill="#18382c")
-    draw.text((margin, 69), "Linearized within the backbone · junction details alternate above and below", font=small, fill="#647168")
+    draw.text((margin, 69), "Linearized within the backbone" if interactive else "Linearized within the backbone · junction details alternate above and below", font=small, fill="#647168")
     # Draw expansion wedges behind the map and the white detail panels.
     for rank, ((junction, filename), image) in enumerate(zip(items, images)):
+        if interactive:
+            continue
         column = rank // 2
         panel_x = margin + sum(column_widths[:column]) + column * gutter + (column_widths[column] - image.width) // 2
         top = rank % 2 == 0
@@ -1247,7 +1251,7 @@ def _write_plasmid_junction_figure(path, rows, starts, retained, sequence, junct
         position = (junction_locations[str(junction["junction_id"])][0] + 2 - rotation) % length
         anchor = x(position)
         draw.line((anchor, map_y - 31, anchor, map_y + 31), fill="#283d32", width=3)
-        badge_y = map_y - 66 if rank % 2 == 0 else map_y + 106
+        badge_y = map_y - 66 if interactive or rank % 2 == 0 else map_y + 106
         draw.ellipse((anchor - 19, badge_y - 19, anchor + 19, badge_y + 19), fill="#253c30")
         label = str(rank + 1)
         span = draw.textbbox((0, 0), label, font=small)[2]
@@ -1256,6 +1260,13 @@ def _write_plasmid_junction_figure(path, rows, starts, retained, sequence, junct
     draw.text((margin + 53, height - 90), "Hatched: assigned DNA outside the annotated core. Solid: annotated core.", font=small, fill="#647168")
     draw.text((margin, height - 46), "Map is to scale; short extensions are clearer in the zoom-ins. DNA colors retain native core ownership.", font=small, fill="#647168")
     figure.save(path, "PNG")
+    if interactive:
+        return {"path": str(path), "junctions": [
+            {"id": str(junction["junction_id"]), "label": str(rank + 1), "detailPath": str(filename),
+             "xPercent": 100 * x((junction_locations[str(junction["junction_id"])][0] + 2 - rotation) % length) / width,
+             "topPercent": 100 * (map_y - 90) / height,
+             "heightPercent": 100 * 125 / height}
+            for rank, (junction, filename) in enumerate(items)]}
 
 
 def _assembled_circular_map(fragment_rows: list[dict[str, Any]]) -> tuple[str, list[int], list[str]]:
@@ -1774,9 +1785,11 @@ def _run_plan_data(
     joined_overview.save(joined_overview_path, "PNG")
     plasmid_junction_figure = output_dir / "plasmid_with_junction_blowups.png"
     _write_plasmid_junction_figure(plasmid_junction_figure, representative_rows, component_starts, retained, assembled_sequence, junction_rows, junction_locations, joined_views)
+    interactive_map = _write_plasmid_junction_figure(output_dir / "linear_map.png", representative_rows, component_starts, retained, assembled_sequence, junction_rows, junction_locations, joined_views, interactive=True)
     sequence_validation = "Exact circular match to uploaded plasmid with selected core replacements" if expected_target is not None else "Explicit-plan overlap assembly; not compared with the full scaffold"
     library = {"plasmids": plasmids, "plasmidCount": len(plasmids), "combinationCount": len(combinations), "plasmidFolder": str(plasmid_folder)}
     report = {**library, "plan": plan_reference, "scaffold": str(scaffold.path), "enzyme": enzyme, "junctions": junction_rows, "fragments": fragment_rows, "assembledMap": str(map_path), "schematicMap": str(schematic_path), "sequenceValidation": sequence_validation, "mapVariants": map_variants, "junctionScreencaps": screencaps, "plasmidJunctionFigure": str(plasmid_junction_figure), "automaticJunctions": automatic_junctions, "junctionJoinedViews": joined_views, "junctionJoinedOverview": str(joined_overview_path), "junctionCleanViews": clean_views, "junctionCleanOverview": str(overview_path), "warnings": warnings}
+    report["interactiveMap"] = interactive_map
     (output_dir / "design.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     return {**report, "ok": True, "outputDir": str(output_dir), "project": plan.get("project", design_name), "scaffoldBp": len(scaffold.sequence), "assembledBp": len(assembled_sequence), "enzyme": enzyme.get("name", "custom"), "fragments": [{key: row[key] for key in ("fragment_id", "name", "element_name", "assembly_position", "variant_name", "source", "left_fusion", "right_fusion", "final_fragment_bp")} for row in fragment_rows]}
 

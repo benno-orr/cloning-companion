@@ -158,6 +158,16 @@ def test_linear_map_wedges_follow_individual_images_and_have_no_callout_headings
     assert [p[1][0] - p[0][0] for p in polygons] == [600 - 168, 900 - 168]
     assert not any('→' in t or 'CACC' in t or 'TGAA' in t for t in texts)
     assert {'1', '2'} <= set(texts)  # Central map badges remain.
+    polygons.clear()
+    result = _write_plasmid_junction_figure(tmp_path / 'interactive.png', rows, [0, 100], ['A' * 104] * 2, 'A' * 200,
+        [{'junction_id': 'a', 'selected_fusion': 'CACC'}, {'junction_id': 'b', 'selected_fusion': 'TGAA'}],
+        {'a': (96, 0, 1), 'b': (196, 1, 0)}, images, interactive=True)
+    assert not polygons  # No baked-in blowups or expansion wedges.
+    assert Image.open(result['path']).size == (2000, 430)
+    assert len(result['junctions']) == 2
+    assert len({j['topPercent'] for j in result['junctions']}) == 1
+    assert [j['xPercent'] for j in result['junctions']] == sorted(j['xPercent'] for j in result['junctions'])
+    assert {j['detailPath'] for j in result['junctions']} == set(map(str, images))
 
 
 def test_annotations_are_exported_to_assembled_map_and_orf_images(tmp_path, monkeypatch):
