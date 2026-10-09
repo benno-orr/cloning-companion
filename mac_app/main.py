@@ -707,6 +707,11 @@ class NativeAPI:
     def save_project(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return self._save_project(payload, False)
 
+    def clear_verification_inputs(self) -> bool:
+        """Discard verification exports while keeping the current project and design."""
+        self.latest_results = {}
+        return True
+
     def start_new_project(self) -> bool:
         self.current_project = None
         self._design_files = {}
