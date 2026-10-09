@@ -62,6 +62,10 @@
     .picker-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
     .picker { text-align:left; padding:18px; min-height:128px; border:1px dashed #b9cac0; border-radius:13px; background:rgba(255,255,255,.72); transition:.15s; }
     .picker:hover { border-color:var(--green); background:#fff; box-shadow:var(--shadow); }
+    .insert-picker { padding:0; display:flex; flex-direction:column; }
+    .picker-main { flex:1; width:100%; border:0; background:transparent; text-align:left; padding:18px 18px 10px; color:inherit; border-radius:13px; }
+    .insert-picker .paste-button { align-self:flex-start; margin:0 18px 18px; }
+    .backbone-cell select { width:100%; border:0; background:transparent; color:inherit; font:inherit; padding:3px 0; }
     .picker.loaded { border-style:solid; border-color:#abcaba; }
     .picker.drag-over { border:2px solid var(--green); background:#e8f5ed; }
     .graphic-tabs { display:flex; flex-wrap:wrap; gap:8px; padding:14px 17px; }
@@ -330,6 +334,7 @@
       <div class="workspace-crumb" id="workspace-crumb">Design / Map & fragments</div>
       <div class="toolbar-title" id="document-title">Untitled Project<small id="document-status">Ready for input</small></div>
       <div class="toolbar-actions">
+        <button class="button" id="new-project">New Project</button>
         <button class="button" id="save-project">Save Project</button>
         <button class="button primary" id="run-top" disabled>Run Verification</button>
         <button class="button primary hidden" id="run-design-top" disabled>Generate design</button>
@@ -340,12 +345,12 @@
       <div class="content-inner" id="setup-view">
         <div class="eyebrow">Whole-plasmid sequencing · construct QC</div>
         <h1>Verify your constructs</h1>
-        <p class="subtitle">Add insert sequences, assign a backbone in the spreadsheet, then pair each WPS consensus to a target.</p>
+        <p class="subtitle">Add inserts and WPS results, then choose a shared backbone or assign one per row below.</p>
 
         <div class="welcome" id="welcome">
           <div class="welcome-card">
             <h3>Start a verification project</h3>
-            <p>Start with your insert list. Then assign each row’s backbone and select the intended target for every WPS file.</p>
+            <p>Start with your insert list, then add WPS results. Choose a shared backbone or use the spreadsheet dropdowns.</p>
             <button class="button primary" id="welcome-inserts">Add Insert Sequences</button>
           </div>
           <div class="welcome-card">
@@ -354,19 +359,22 @@
           </div>
         </div>
 
-        <h2 class="section-title"><span class="step-num">1</span>Sequence inputs</h2>
+        <h2 class="section-title"><span class="step-num">1</span>Sequence inputs<button class="button" id="clear-inputs" style="margin-left:auto">Clear Inputs</button></h2>
         <div class="picker-grid">
-          <button class="picker" id="pick-inserts">
-            <div class="picker-icon">＋</div><div class="picker-title">Ordered inserts</div>
-            <div class="picker-sub">FASTA, .dna, CSV, TSV, or Excel; filenames begin with target IDs.</div><div class="file-summary" id="insert-summary">Choose files…</div>
-          </button>
-          <button class="picker" id="paste-inserts">
-            <div class="picker-icon">⌘</div><div class="picker-title">Paste insert table</div>
-            <div class="picker-sub">Paste CSV or tab-separated rows with target ID and DNA sequence.</div><div class="file-summary">Add rows directly…</div>
-          </button>
+          <div class="picker insert-picker" id="insert-picker">
+            <button class="picker-main" id="pick-inserts">
+              <div class="picker-icon">＋</div><div class="picker-title">Ordered inserts</div>
+              <div class="picker-sub">FASTA, .dna, CSV, TSV, or Excel; filenames begin with target IDs.</div><div class="file-summary" id="insert-summary">Choose files…</div>
+            </button>
+            <button class="button paste-button" id="paste-inserts">Add via copy/paste…</button>
+          </div>
           <button class="picker" id="pick-consensuses">
-            <div class="picker-icon">✓</div><div class="picker-title">WPS consensuses</div>
+            <div class="picker-icon">✓</div><div class="picker-title">WPS results</div>
             <div class="picker-sub">One whole-plasmid FASTA or .dna consensus per target.</div><div class="file-summary" id="consensus-summary">Choose files…</div>
+          </button>
+          <button class="picker" id="pick-backbone">
+            <div class="picker-icon">↻</div><div class="picker-title">Backbone</div>
+            <div class="picker-sub">Optional shared FASTA or .dna backbone. Leave empty to choose per row from the dropdown below.</div><div class="file-summary" id="backbone-summary">Choose file…</div>
           </button>
         </div>
 
@@ -429,7 +437,7 @@
 
 <script>
 const state = {
-  method:'Gibson', armLength:15, enzyme:'BsaI', inserts:[], consensuses:[], results:[], failures:[], recent:[], designMap:null, designVariableTexts:{}
+  method:'Gibson', armLength:15, enzyme:'BsaI', defaultBackbone:null, inserts:[], consensuses:[], results:[], failures:[], recent:[], designMap:null, designVariableTexts:{}
 };
 const regionColors = {'backbone':'#8da399','junction':'#e7a93b','non-coding':'#7665a8','coding':'#2a8c68'};
 const categoryColors = {'backbone':'#657c71','junction':'#d88a15','non-coding':'#7665a8','silent':'#438dab','missense':'#d15b45','nonsense':'#a22f35','stop loss':'#a22f35','frameshift':'#711e45','in-frame insertion':'#ca4f44','in-frame deletion':'#ca4f44'};
@@ -522,7 +530,7 @@ function toast(message, error=false) {
   clearTimeout(window.toastTimer); window.toastTimer=setTimeout(()=>el.classList.remove('show'),3300);
 }
 function currentProjectState() {
-  return {projectName:state.projectName,projectId:state.projectId,method:state.method,armLength:state.armLength,enzyme:state.enzyme,parentPath:'',inserts:state.inserts,consensuses:state.consensuses,goldenGateDesign:{map:state.designMap,enzyme:document.getElementById('design-enzyme').value,variableTexts:state.designVariableTexts,savedRunId:state.activeDesignRunId}};
+  return {projectName:state.projectName,projectId:state.projectId,method:state.method,armLength:state.armLength,enzyme:state.enzyme,parentPath:state.defaultBackbone?.path||'',defaultBackbone:state.defaultBackbone,inserts:state.inserts,consensuses:state.consensuses,goldenGateDesign:{map:state.designMap,enzyme:document.getElementById('design-enzyme').value,variableTexts:state.designVariableTexts,savedRunId:state.activeDesignRunId}};
 }
 window.getProjectState=currentProjectState;
 function setDocument(path) {
@@ -550,7 +558,7 @@ function setEnzyme(name) {
   closeEnzymeOptions();
 }
 function updateReady() {
-  const hasBackboneForTarget=targetId=>{const rows=state.inserts.filter(row=>row.targetId===targetId);return rows.length>0&&rows.every(row=>row.backbone?.path)};
+  const hasBackboneForTarget=targetId=>{const rows=state.inserts.filter(row=>row.targetId===targetId);return rows.length>0&&rows.every(row=>(row.backbone||state.defaultBackbone)?.path)};
   const targets=targetIds();
   const ready=!!(targets.length&&state.consensuses.length===targets.length&&targets.every(targetId=>hasBackboneForTarget(targetId)&&state.consensuses.filter(row=>row.targetId===targetId).length===1));
   document.getElementById('run-main').disabled=!ready; document.getElementById('run-top').disabled=!ready;
@@ -568,22 +576,29 @@ function renderRecent() {
 }
 function renderInputs() {
   document.getElementById('insert-summary').textContent=state.inserts.length?`${state.inserts.length} file${state.inserts.length===1?'':'s'} selected`:'Choose files…';
-  document.getElementById('pick-inserts').classList.toggle('loaded',!!state.inserts.length);
+  document.getElementById('insert-picker').classList.toggle('loaded',!!state.inserts.length);
   document.getElementById('consensus-summary').textContent=state.consensuses.length?`${state.consensuses.length} target${state.consensuses.length===1?'':'s'} selected`:'Choose files…';
   document.getElementById('pick-consensuses').classList.toggle('loaded',!!state.consensuses.length);
   document.getElementById('welcome').classList.toggle('hidden',!!(state.inserts.length||state.consensuses.length));
+  document.getElementById('backbone-summary').textContent=state.defaultBackbone?.filename||'Choose file…';
+  document.getElementById('pick-backbone').classList.toggle('loaded',!!state.defaultBackbone);
+  const backbones=[...new Map([state.defaultBackbone,...state.inserts.map(row=>row.backbone)].filter(Boolean).map(item=>[item.path,item])).values()];
   let html='';
   if(state.inserts.length){
     const firstRowByTarget={};state.inserts.forEach((row,index)=>{if(firstRowByTarget[row.targetId]===undefined||Number(row.order)<Number(state.inserts[firstRowByTarget[row.targetId]].order))firstRowByTarget[row.targetId]=index;});
     html+=`<div class="panel"><div class="panel-head"><strong>Assembly spreadsheet</strong><span>Drop a WPS file onto its target’s WPS cell, or use bulk upload for alphabetical pairing.</span></div><table><thead><tr><th>Insert file</th><th>Backbone</th><th>WPS consensus</th><th>Target ID</th><th>Order</th><th>5′ non-coding</th><th>3′ non-coding</th></tr></thead><tbody>`;
-    state.inserts.forEach((row,i)=>{const backbone=row.backbone;const backboneLabel=backbone?`${backbone.filename} · ${fmt(backbone.length)} bp`:'Drop .fasta/.dna or click to choose';const wps=state.consensuses.find(item=>item.targetId===row.targetId);const isTargetFirst=firstRowByTarget[row.targetId]===i;const wpsLabel=wps?`${wps.filename} · ${fmt(wps.length)} bp`:'Drop .fasta/.dna or click to choose';const wpsCell=isTargetFirst?`<button class="wps-cell ${wps?'assigned':''}" data-wps-target="${esc(row.targetId)}" title="${esc(wps?.path||'')}">${esc(wpsLabel)}</button>`:'<span class="meta">↳ same target</span>';html+=`<tr><td><div class="filename" title="${esc(row.path)}">${esc(row.filename)}</div><div class="meta">${fmt(row.length)} bp</div></td><td><button class="backbone-cell ${backbone?'assigned':''}" data-backbone="${i}" title="${esc(backbone?.path||'')}">${esc(backboneLabel)}<i class="fill-handle" data-fill="${i}" title="Drag to fill down"></i></button></td><td>${wpsCell}</td><td><input class="cell-input" data-insert="${i}" data-field="targetId" value="${esc(row.targetId)}"></td><td><input class="cell-input num-input" type="number" min="1" data-insert="${i}" data-field="order" value="${row.order}"></td><td><input class="cell-input num-input" type="number" min="0" data-insert="${i}" data-field="noncoding5" value="${row.noncoding5}"></td><td><input class="cell-input num-input" type="number" min="0" data-insert="${i}" data-field="noncoding3" value="${row.noncoding3}"></td></tr>`});
+    state.inserts.forEach((row,i)=>{const backbone=row.backbone||state.defaultBackbone;const wps=state.consensuses.find(item=>item.targetId===row.targetId);const isTargetFirst=firstRowByTarget[row.targetId]===i;const wpsLabel=wps?`${wps.filename} · ${fmt(wps.length)} bp`:'Drop .fasta/.dna or click to choose';const wpsCell=isTargetFirst?`<button class="wps-cell ${wps?'assigned':''}" data-wps-target="${esc(row.targetId)}" title="${esc(wps?.path||'')}">${esc(wpsLabel)}</button>`:'<span class="meta">↳ same target</span>';html+=`<tr><td><div class="filename" title="${esc(row.path)}">${esc(row.filename)}</div><div class="meta">${fmt(row.length)} bp</div></td><td><div class="backbone-cell ${backbone?'assigned':''}" data-backbone="${i}" title="${esc(backbone?.path||'')}"><select aria-label="Backbone for insert ${esc(row.filename)}"><option value="" ${!row.backbone?'selected':''}>${state.defaultBackbone?`Shared: ${esc(state.defaultBackbone.filename)}`:'Choose backbone…'}</option>${backbones.map(item=>`<option value="${esc(item.path)}" ${row.backbone?.path===item.path?'selected':''}>${esc(item.filename)}</option>`).join('')}<option value="__browse__">Choose file…</option></select><i class="fill-handle" data-fill="${i}" title="Drag to fill down"></i></div></td><td>${wpsCell}</td><td><input class="cell-input" data-insert="${i}" data-field="targetId" value="${esc(row.targetId)}"></td><td><input class="cell-input num-input" type="number" min="1" data-insert="${i}" data-field="order" value="${row.order}"></td><td><input class="cell-input num-input" type="number" min="0" data-insert="${i}" data-field="noncoding5" value="${row.noncoding5}"></td><td><input class="cell-input num-input" type="number" min="0" data-insert="${i}" data-field="noncoding3" value="${row.noncoding3}"></td></tr>`});
     html+='</tbody></table></div>';
   }
   const area=document.getElementById('mapping-area'); area.innerHTML=html;
   area.querySelectorAll('[data-insert]').forEach(input=>input.onchange=()=>{const row=state.inserts[Number(input.dataset.insert)];row[input.dataset.field]=input.type==='number'?Number(input.value):input.value;if(input.dataset.field==='targetId')renderInputs();else updateReady();});
   area.querySelectorAll('[data-backbone]').forEach(cell=>{
     const index=Number(cell.dataset.backbone);
-    cell.onclick=async event=>{if(event.target.dataset.fill!==undefined)return;try{const backbone=await pywebview.api.choose_backbone();if(backbone){state.inserts[index].backbone=backbone;renderInputs();}}catch(e){toast(String(e),true)}};
+    cell.querySelector('select').onchange=async event=>{
+      try{const value=event.target.value;if(value==='__browse__'){const backbone=await pywebview.api.choose_backbone();if(backbone)state.inserts[index].backbone=backbone;}else{state.inserts[index].backbone=backbones.find(item=>item.path===value)||null;}}
+      catch(e){toast(String(e),true)}
+      finally{renderInputs();}
+    };
     cell.ondragover=event=>{event.preventDefault();cell.classList.add('drag-over')};
     cell.ondragleave=()=>cell.classList.remove('drag-over');
     cell.ondrop=event=>{event.preventDefault();cell.classList.remove('drag-over');};
@@ -595,7 +610,7 @@ function renderInputs() {
     cell.ondragleave=()=>cell.classList.remove('drag-over');
     cell.ondrop=event=>{event.preventDefault();cell.classList.remove('drag-over');};
   });
-  area.querySelectorAll('[data-fill]').forEach(handle=>handle.onpointerdown=event=>{event.preventDefault();event.stopPropagation();const source=state.inserts[Number(handle.dataset.fill)].backbone;if(!source){toast('Choose a backbone before filling it into other rows',true);return;}const apply=target=>{const cell=target.closest?.('[data-backbone]');if(cell){state.inserts[Number(cell.dataset.backbone)].backbone={...source};renderInputs();}};const move=moveEvent=>apply(document.elementFromPoint(moveEvent.clientX,moveEvent.clientY));document.addEventListener('pointermove',move);document.addEventListener('pointerup',()=>document.removeEventListener('pointermove',move),{once:true});});
+  area.querySelectorAll('[data-fill]').forEach(handle=>handle.onpointerdown=event=>{event.preventDefault();event.stopPropagation();const source=state.inserts[Number(handle.dataset.fill)].backbone||state.defaultBackbone;if(!source){toast('Choose a backbone before filling it into other rows',true);return;}const apply=target=>{const cell=target.closest?.('[data-backbone]');if(cell){state.inserts[Number(cell.dataset.backbone)].backbone={...source};renderInputs();}};const move=moveEvent=>apply(document.elementFromPoint(moveEvent.clientX,moveEvent.clientY));document.addEventListener('pointermove',move);document.addEventListener('pointerup',()=>document.removeEventListener('pointermove',move),{once:true});});
   updateReady();
   const wpsTargets=[...area.querySelectorAll('[data-wps-target]')].map(cell=>cell.dataset.wpsTarget);
   if(window.pywebview?.api?.register_drop_targets)pywebview.api.register_drop_targets(wpsTargets).catch(error=>toast(`Could not enable file drop: ${error}`,true));
@@ -605,6 +620,7 @@ window.nativeBackboneDropFailed=(index,message)=>toast(`Backbone drop failed: ${
 window.nativeWpsDropped=(targetId,wps)=>{setTargetWps(targetId,wps);toast(`Assigned ${wps.filename}`)};
 window.nativeWpsDropFailed=(targetId,message)=>toast(`WPS drop failed: ${message}`,true);
 function assignInsertOrders(items){const counts={};items.forEach(item=>{const key=item.targetId||'';if(item.sequence&&Number(item.order)>0){counts[key]=Math.max(counts[key]||0,Number(item.order));}else{item.order=(counts[key]||0)+1;counts[key]=item.order;}});return items;}
+async function chooseBackbone(){try{const backbone=await pywebview.api.choose_backbone();if(backbone){state.defaultBackbone=backbone;renderInputs();}}catch(e){toast(String(e),true)}}
 async function chooseInserts(){try{const items=await pywebview.api.choose_inserts();if(items?.length){state.inserts=assignInsertOrders(items);renderInputs();}}catch(e){toast(String(e),true)}}
 function openPasteInserts(){
   document.getElementById('modal-title').textContent='Paste insert table';
@@ -623,7 +639,7 @@ async function runVerification(){
   const buttons=[document.getElementById('run-main'),document.getElementById('run-top')];buttons.forEach(b=>{b.disabled=true;b.innerHTML='<span class="spinner"></span>Analyzing…'});
   document.getElementById('document-status').textContent='Building targets and aligning WPS…';
   try{
-    const response=await pywebview.api.run_verification(currentProjectState());
+    const response=await pywebview.api.run_verification({...currentProjectState(),inserts:state.inserts.map(row=>({...row,backbone:row.backbone||state.defaultBackbone}))});
     if(!response.ok)throw new Error(response.error);
     state.results=response.results;state.failures=response.failures||[];renderResults();showView('results');
     document.getElementById('document-status').textContent=`${state.results.length} target${state.results.length===1?'':'s'} verified`;
@@ -746,7 +762,7 @@ window.saveProjectFromMenu=()=>saveProject(false);
 window.loadProjectFromNative=result=>applyProject(result);
 async function openRecent(index){const result=await pywebview.api.open_project(state.recent[index].path);if(result.ok)applyProject(result);else if(result.error)toast(result.error,true)}
 function applyProject(result){
-  const p=result.state;state.inserts=p.inserts||[];state.consensuses=p.consensuses||[];state.recent=result.recent||state.recent;
+  const p=result.state;state.defaultBackbone=p.defaultBackbone||(p.parentPath?{path:p.parentPath,filename:p.parentPath.split('/').pop()}:null);state.inserts=p.inserts||[];state.consensuses=p.consensuses||[];state.recent=result.recent||state.recent;
   state.projectName=p.projectName||'';state.projectId=p.projectId||null;
   document.getElementById('design-project-name').value=state.projectName;
   const design=p.goldenGateDesign||{};state.designMap=design.map||null;state.designVariableTexts=design.variableTexts||{};
@@ -757,7 +773,30 @@ function applyProject(result){
   setMethod(p.method||'Gibson');state.armLength=p.armLength||15;document.getElementById('armLength').value=state.armLength;setEnzyme(p.enzyme||'BsaI');setDocument(result.path);renderRecent();renderInputs();showView(result.designResult?'design-results':state.designMap&&!state.inserts.length?'design':'setup');
   if(result.missing?.length)toast(`${result.missing.length} referenced sequence file${result.missing.length===1?' is':'s are'} missing`,true);else toast('Project opened');
 }
-window.newProject=async()=>{if(designBusy||verificationBusy){toast('Wait for the current run to finish',true);return;}await pywebview.api.start_new_project();applyProject({state:{},path:null});state.results=[];state.failures=[];renderResults();};
+window.newProject=async()=>{
+  if(designBusy||verificationBusy){toast('Wait for the current run to finish',true);return;}
+  try{
+    const view=activeView.startsWith('design')?'design':'setup';
+    await pywebview.api.start_new_project();
+    applyProject({state:{},path:null});
+    state.results=[];state.failures=[];renderResults();
+    workspaceViews.design='design';workspaceViews.verification='setup';
+    closeModal();showView(view);
+    document.getElementById('document-status').textContent='Ready for input';
+    toast('New project ready');
+  }catch(e){toast(`Could not start a new project: ${e}`,true)}
+};
+async function clearVerificationInputs(){
+  if(designBusy||verificationBusy){toast('Wait for the current run to finish',true);return;}
+  try{
+    await pywebview.api.clear_verification_inputs();
+    state.inserts=[];state.consensuses=[];state.defaultBackbone=null;
+    state.results=[];state.failures=[];
+    renderInputs();renderResults();showView('setup');
+    document.getElementById('document-status').textContent='Ready for input';
+    toast('Verification inputs cleared');
+  }catch(e){toast(`Could not clear inputs: ${e}`,true)}
+}
 window.nativeExportFinished=result=>{if(result.ok)toast(`Saved ${result.path.split('/').pop()}`);else if(result.error)toast(result.error,true)};
 async function exportKind(kind){try{const result=await pywebview.api[kind]();window.nativeExportFinished(result)}catch(e){toast(String(e),true)}}
 
@@ -805,8 +844,10 @@ document.getElementById('enzyme-trigger').onclick=()=>{
 };
 document.querySelectorAll('#enzyme-options [data-enzyme]').forEach(button=>button.onclick=()=>setEnzyme(button.dataset.enzyme));
 document.addEventListener('click',event=>{if(!event.target.closest('.enzyme-picker'))closeEnzymeOptions()});
+document.getElementById('new-project').onclick=window.newProject;
+document.getElementById('clear-inputs').onclick=clearVerificationInputs;
 document.getElementById('welcome-inserts').onclick=chooseInserts;
-document.getElementById('pick-inserts').onclick=chooseInserts;document.getElementById('paste-inserts').onclick=openPasteInserts;document.getElementById('pick-consensuses').onclick=chooseConsensuses;
+document.getElementById('pick-backbone').onclick=chooseBackbone;document.getElementById('pick-inserts').onclick=chooseInserts;document.getElementById('paste-inserts').onclick=openPasteInserts;document.getElementById('pick-consensuses').onclick=chooseConsensuses;
 document.getElementById('run-main').onclick=runVerification;document.getElementById('run-top').onclick=runVerification;
 document.getElementById('pick-design-map').onclick=chooseAnnotatedDesignMap;document.getElementById('run-design').onclick=runAnnotatedGoldenGateDesign;
 const designDrop=document.getElementById('pick-design-map');
